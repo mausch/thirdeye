@@ -13,6 +13,8 @@ set(UNITTEST
     bitmapmask_tests.cpp
     dhmaze_tests.cpp
     control_tests.cpp
+    dhsave_tests.cpp
+    ../thirdeye/savegame/dh_save.cpp
     ../thirdeye/control.cpp
     ../thirdeye/automap.cpp  # control.cpp calls automap::toggle()
     ../thirdeye/runtime/dh_maze.cpp  # MAZE.EXE port (dhmaze_tests)

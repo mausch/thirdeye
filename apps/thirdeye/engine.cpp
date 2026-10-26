@@ -37,6 +37,11 @@
 #include <memory>
 #include <random>
 
+namespace {
+std::filesystem::path resolveChildCI(const std::filesystem::path& parent,
+                                     const std::string& name);
+}
+
 THIRDEYE::Engine::Engine(Files::ConfigurationManager& configurationManager) :
 		mNewGame(false), mUseSound(true), mDebug(false), mRenderer(false), mGame(
 				GAME_UNKN), mScale(1), mCfgMgr(configurationManager) {
@@ -105,13 +110,20 @@ std::filesystem::path THIRDEYE::Engine::resolveResourceFile() {
 		return mGameData;
 	}
 
-	// Treat as a directory: append the main resource file for the game.
+	// Resolve DOS filenames case-insensitively. Auto detection prefers EOB3
+	// when both games are installed in the same directory.
+	if (mGame == GAME_UNKN) {
+		if (fs::is_regular_file(resolveChildCI(mGameData, "EYE.RES")))
+			mGame = GAME_EOB3;
+		else if (fs::is_regular_file(resolveChildCI(mGameData, "HACK.RES")))
+			mGame = GAME_HACK;
+	}
 	switch (mGame) {
 	case GAME_HACK:
-		return mGameData / "HACK.RES";
+		return resolveChildCI(mGameData, "HACK.RES");
 	case GAME_EOB3:
 	default:
-		return mGameData / "EYE.RES";
+		return resolveChildCI(mGameData, "EYE.RES");
 	}
 }
 void THIRDEYE::Engine::setDebugMode(bool debug) {
@@ -757,6 +769,8 @@ VM::Value defaultRuntimeCall(VM::ObjectSystem &objects, VM::EventSystem &events,
 	}
 
 	if (THIRDEYE::runtime::rtobject::tryHandle(ctx, fn, args, result)) return result;
+	if (THIRDEYE::runtime::gDungeonHack &&
+	    THIRDEYE::runtime::dh::trySaveCall(ctx, fn, args, result)) return result;
 	if (THIRDEYE::runtime::eye::tryHandle(ctx, fn, args, result))      return result;
 	if (THIRDEYE::runtime::graphics::tryHandle(ctx, fn, args, result)) return result;
 	if (THIRDEYE::runtime::sound::tryHandle(ctx, fn, args, result))    return result;
@@ -895,7 +909,7 @@ void THIRDEYE::Engine::runResourceVM(RESOURCES::Resource &resource) {
 // Boot a single object the way the original interpreter does (create instance +
 // send MSG_CREATE). This runs the real boot path and stops at the first runtime
 // function / opcode we haven't built yet -- our data-driven bring-up to-do list.
-void THIRDEYE::Engine::bootObject(RESOURCES::Resource &resource,
+std::string THIRDEYE::Engine::bootObject(RESOURCES::Resource &resource,
                                   const std::string &objectName) {
 	// Open a window so the SOP runtime's draw calls have somewhere to render.
 	// If there's no display (headless/CI), fall back to running without graphics
@@ -1103,19 +1117,14 @@ void THIRDEYE::Engine::bootObject(RESOURCES::Resource &resource,
 	if (!objects.findClassByName(objectName, classNumber)) {
 		std::cout << "Boot object \"" << objectName
 		          << "\" not found in this resource file." << std::endl;
-		return;
+		return {};
 	}
 
 	std::cout << "\nBooting object \"" << objectName
 	          << "\" (sending MSG_CREATE)..." << std::endl;
-	// Dungeon Hack ships as a chain of AESOP programs launched by HACK.BAT
-	// (opening / phase-one / phase-two), each returning an errorlevel that
-	// the batch script switches on -- 3=re-run same phase, 2=re-run intro
-	// then phase-one, 1=quit, 0=fall through. We honor the intra-.RES half
-	// of that (phase-one <-> phase-two) here; cross-.RES chaining to OPEN
-	// isn't wired yet (see runtime/dh.cpp header for the DH TODO list).
-	// ponytail: phase-two on rc=0 will crash without MAZE.EXE-generated
-	// dungeon data; that's the honest signal, upgrade when MAZE is stubbed.
+	// HACK.BAT runs opening, phase-one and phase-two as separate processes.
+	// Resource changes return to go(), releasing this VM and its host state.
+	std::string nextResource;
 	std::string currentBoot = objectName;
 	auto isDHPhase = [](const std::string &n) {
 		return n == "phase-one" || n == "phase-two";
@@ -1228,14 +1237,15 @@ void THIRDEYE::Engine::bootObject(RESOURCES::Resource &resource,
 				//
 				// Note phase-two's sense is inverted from phase-one's: a clean
 				// return to the title menu is 0, and anything else quits.
-				// We land phase-one's 2 and 3+ on the same target because the
-				// cross-.RES hop back to OPEN.RES for the intro isn't wired up
-				// yet; the range test still has to be >= 3 rather than == 3 so
-				// a higher code doesn't fall through to "quit".
 				const int32_t rc = result;
 				std::string nextBoot;
 				if (currentBoot == "phase-two") {
 					if (rc == 0) nextBoot = "phase-one";
+				} else if (rc == 2 && std::filesystem::is_regular_file(
+				               resolveChildCI(resource.resourcePath().parent_path(), "OPEN.RES"))) {
+					nextResource = "OPEN.RES";
+					quit = true;
+					break;
 				} else if (rc >= 2) {
 					nextBoot = "phase-one";
 				} else if (rc == 0) {
@@ -1279,6 +1289,10 @@ void THIRDEYE::Engine::bootObject(RESOURCES::Resource &resource,
 					          << " -- quitting." << std::endl;
 					quit = true;
 				}
+			} else if (currentBoot == "opening" && THIRDEYE::runtime::gDungeonHack) {
+				objects.send(objIndex, MSG_DESTROY, {});
+				nextResource = "HACK.RES";
+				quit = true;
 			} else {
 				std::cout << "Boot handler returned " << result << " -- quitting."
 				          << std::endl;
@@ -1333,6 +1347,7 @@ void THIRDEYE::Engine::bootObject(RESOURCES::Resource &resource,
 	// boot-wall) falls through here.
 	if (gRecorder.enabled)
 		gRecorder.dump();
+	return nextResource;
 }
 
 // A menu choice handed off to an external DOS sub-program via launch(). We can't
@@ -1603,6 +1618,42 @@ void THIRDEYE::Engine::go() {
 	// --vm (or the --skip-* flags, which only make sense here): boot the SOP
 	// bytecode VM. EOB3 boots the "start" object; Dungeon Hack's HACK.BAT
 	// wires it as `aesop open opening` (intro) / `aesop hack phase-one` (game).
+	if (mGame == GAME_HACK) {
+		THIRDEYE::runtime::gDungeonHack = true;
+		const auto root = resFile.parent_path();
+		std::string bootName = "phase-one";
+		std::unique_ptr<RESOURCES::Resource> chainedResource;
+		RESOURCES::Resource* active = &resource;
+		const char* overrideBoot = std::getenv("THIRDEYE_BOOT");
+		const auto opening = resolveChildCI(root, "OPEN.RES");
+		if (!overrideBoot && !mSkipIntro && std::filesystem::is_regular_file(opening)) {
+			if (active->resourcePath() != opening) {
+				chainedResource = std::make_unique<RESOURCES::Resource>(opening);
+				active = chainedResource.get();
+			}
+			bootName = "opening";
+		} else if (active->resourcePath().filename() == opening.filename() && !overrideBoot) {
+			chainedResource = std::make_unique<RESOURCES::Resource>(resolveChildCI(root, "HACK.RES"));
+			active = chainedResource.get();
+		}
+		if (overrideBoot) bootName = overrideBoot;
+		while (true) {
+			// Normal new games generate only after Customization. A direct
+			// phase-two debug boot still needs a complete dungeon on disk.
+			if (bootName == "phase-two" &&
+			    !THIRDEYE::runtime::dh::ensureSavegameFiles(root)) {
+				throw std::runtime_error("DH dungeon generation failed");
+			}
+			const std::string next = bootObject(*active, bootName);
+			if (next.empty()) break;
+			const auto path = resolveChildCI(root, next);
+			std::cout << "  [DH program chain -> " << path.filename().string() << "]" << std::endl;
+			chainedResource = std::make_unique<RESOURCES::Resource>(path);
+			active = chainedResource.get();
+			bootName = next == "OPEN.RES" ? "opening" : "phase-one";
+		}
+		return;
+	}
 	if (mForceVM || mSkipMenu || mSkipIntro) {
 		std::string bootName = "start";
 		std::string resName = resFile.filename().string();
@@ -1616,23 +1667,6 @@ void THIRDEYE::Engine::go() {
 		    (resName == "open.res" || resName == "hack.res");
 		// Debug hook: force any boot object by name (e.g. THIRDEYE_BOOT=phase-two).
 		if (const char *b = std::getenv("THIRDEYE_BOOT")) bootName = b;
-		// DH-only: make sure a dungeon exists before we boot, so that jumping
-		// straight to phase-two (THIRDEYE_BOOT=phase-two) has something to
-		// read. The real new-game path regenerates on the phase-one ->
-		// phase-two hop instead, and checks for itself there.
-		//
-		// Failure only matters if we are about to boot phase-two: phase-one is
-		// the menu and never touches the dungeon, but phase-two would come up
-		// on whatever half-set is on disk.
-		if (resName == "hack.res") {
-			const bool ok = THIRDEYE::runtime::dh::ensureSavegameFiles(
-			    resFile.parent_path());
-			if (!ok && bootName == "phase-two") {
-				std::cout << "DH dungeon generation failed -- refusing to boot "
-				             "phase-two." << std::endl;
-				return;
-			}
-		}
 		bootObject(resource, bootName);
 		return;
 	}
@@ -1658,4 +1692,3 @@ void THIRDEYE::Engine::go() {
 	// removed; git history has it.
 	bootObject(resource, "start");
 }
-

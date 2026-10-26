@@ -33,6 +33,12 @@ namespace THIRDEYE::savegame { struct TransferState; }
 
 namespace THIRDEYE::runtime {
 
+struct Context;
+namespace dh {
+bool trySaveCall(Context &ctx, const std::string &fn,
+                 const std::vector<VM::Value> &args, VM::Value &result);
+}
+
 // Thrown by pumpHost to unwind the SOP main loop on quit/ESC. Caught in
 // bootObject (engine.cpp). `reason` is empty for an actual window-close/ESC;
 // non-window terminal conditions (e.g. an unknown launch() target) set it so

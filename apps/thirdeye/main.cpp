@@ -41,7 +41,7 @@ int main(int argc, char** argv) {
         // so that config files (thirdeye.cfg) can still override them, preserving
         // the original precedence: defaults < command line < config file.
         std::string gameData = "/opt/eob3";
-        std::string game     = "eob3";
+        std::string game     = "auto";
         std::string start    = "LEVEL4";
         uint16_t    scale     = 1;
         bool        renderer  = false;
@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
         // Positional arg OR --game-data: a game-data directory or a .RES file.
         app.add_option("game-data,--game-data", gameData,
                        "Path to a game-data directory or a .RES file");
-        app.add_option("--game", game, "Which game to play (eob3, hack)");
+        app.add_option("--game", game, "Which game to play (auto, eob3, hack)");
         app.add_option("--start", start, "Starting location");
         app.add_option("--scale", scale, "Resolution scale");
         app.add_flag("--renderer", renderer, "Enable hardware renderer");

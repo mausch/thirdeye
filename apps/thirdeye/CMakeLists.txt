@@ -35,7 +35,7 @@ add_thirdeye_dir (vm
     )
 
 add_thirdeye_dir (savegame
-    transfer lvl_tmp items_tmp savegame_dir
+    transfer lvl_tmp items_tmp savegame_dir dh_save
     )
 
 add_thirdeye_dir (chargen
@@ -43,7 +43,7 @@ add_thirdeye_dir (chargen
     )
 
 add_thirdeye_dir (runtime
-    internal rtcode event rtobject eye graphics sound dh dh_maze
+    internal rtcode event rtobject eye graphics sound dh dh_maze dh_save
     )
 
 # Main executable

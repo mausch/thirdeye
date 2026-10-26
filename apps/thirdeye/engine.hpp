@@ -101,7 +101,9 @@ private:
 	/// instance of `objectName` and send it MSG_CREATE (0). This is the data-
 	/// driven bring-up path -- it runs the real boot handler and stops at the
 	/// first runtime function / opcode we haven't implemented.
-	void bootObject(RESOURCES::Resource &resource, const std::string &objectName);
+	// Returns a resource filename when the DOS batch chain switches programs.
+	// Empty means the session ended (including window-close and VM errors).
+	std::string bootObject(RESOURCES::Resource &resource, const std::string &objectName);
 
 	/// Play thirdeye's internal stand-in for a launched DOS sub-program (the
 	/// intro cinematic, character generation, ...). Called when a menu choice

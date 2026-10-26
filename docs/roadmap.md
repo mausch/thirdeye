@@ -713,7 +713,12 @@ Still open (nice-to-have): a file-picker UI instead of the env var.
   panels legitimately positioned outside the view (e.g. face 20 at x=34
   spanning a 129-wide panel while view starts at 138) no longer paint
   over the inventory column or the arch.
-- ⏳ `.TBL` support (daesop `/create_tbl` generates these).
+- ✅ The USA distribution's `.TBL` offsets match the directories embedded in
+  `.RES`; the resource loader already reads those directories directly.
+- ✅ Automatic DH directory detection, opening/menu cross-resource chaining,
+  and a live save/turn/restore smoke test. See
+  [validation notes](dungeon_hack_validation.md) for reproduction and remaining
+  event-drain, runtime-helper, and gameplay validation work.
 
 ## Phase 5 — Thirdeye-original features (post-EOB3)
 
