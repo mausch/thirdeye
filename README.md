@@ -90,6 +90,12 @@ sources:
     cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release $cmakeFlags
     cmake --build build
 
+The launcher can download Dungeon Hack from the Internet Archive's
+`DungeonHackUSA` item after confirmation. It extracts the CD image and game
+archive internally, installs to its application-data `dungeonhack` directory,
+and selects that directory for Play. Existing installs require overwrite
+confirmation. You should own a copy of the game.
+
 Linux / macOS:
 
     cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release

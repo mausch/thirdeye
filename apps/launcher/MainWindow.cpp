@@ -1,11 +1,13 @@
 #include "MainWindow.hpp"
 #include "config.hpp"
 #include "unarj.hpp"
+#include "dharchive.hpp"
 
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -75,7 +77,7 @@ constexpr auto ARCHIVE_DOWNLOAD_BASE =
 // with a top-level folder installs to destRoot/<folder>/, and a re-install
 // over that layout must still prompt.
 bool confirmDestructiveInstall(QWidget* parent, const QString& destRoot) {
-    QDirIterator it(destRoot, {QString::fromLatin1(GAME_FILE)}, QDir::Files,
+    QDirIterator it(destRoot, {QStringLiteral("EYE.RES"), QStringLiteral("HACK.RES")}, QDir::Files,
                     QDirIterator::Subdirectories);
     if (!it.hasNext())
         return true;
@@ -83,8 +85,7 @@ bool confirmDestructiveInstall(QWidget* parent, const QString& destRoot) {
         parent, MainWindow::tr("Overwrite existing install?"),
         MainWindow::tr(
             "A game install is already present at:\n%1\n\n"
-            "Installing again will overwrite the shipped save slots "
-            "(SAVEGAME/_00.BIN / _01.BIN) with the pristine Quick Start Party.\n\n"
+             "Installing again will overwrite game data and shipped save files.\n\n"
             "Continue?").arg(destRoot),
         QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
     return pick == QMessageBox::Yes;
@@ -113,7 +114,7 @@ MainWindow::MainWindow(QWidget* parent) : QWidget(parent) {
 
     // Path picker
     m_pathEdit = new QLineEdit(this);
-    m_pathEdit->setPlaceholderText(tr("Path to your Eye of the Beholder III folder"));
+    m_pathEdit->setPlaceholderText(tr("Path to your EOB III or Dungeon Hack folder"));
     auto* browseBtn = new QPushButton(tr("Browse…"), this);
     connect(browseBtn, &QPushButton::clicked, this, &MainWindow::browsePath);
     auto* pathRow = new QHBoxLayout;
@@ -126,9 +127,11 @@ MainWindow::MainWindow(QWidget* parent) : QWidget(parent) {
     connect(installBtn, &QPushButton::clicked,
             this, &MainWindow::installFromInstaller);
     auto* iaBtn = new QPushButton(
-        tr("Download the game from the Internet Archive…"), this);
+        tr("Download EOB III from the Internet Archive…"), this);
     connect(iaBtn, &QPushButton::clicked,
             this, &MainWindow::downloadFromInternetArchive);
+    auto* dhBtn = new QPushButton(tr("Download Dungeon Hack from the Internet Archive…"), this);
+    connect(dhBtn, &QPushButton::clicked, this, &MainWindow::downloadDungeonHack);
 
     // Video group
     m_scale = new QComboBox(this);
@@ -211,6 +214,7 @@ MainWindow::MainWindow(QWidget* parent) : QWidget(parent) {
     content->addWidget(installBtn);
     content->addSpacing(8);
     content->addWidget(iaBtn);
+    content->addWidget(dhBtn);
     content->addSpacing(16);
     content->addWidget(videoBox);
     content->addSpacing(16);
@@ -580,6 +584,114 @@ void MainWindow::downloadFromInternetArchive() {
            int(entries.size())).arg(destRoot));
 }
 
+void MainWindow::downloadDungeonHack() {
+    if (QMessageBox::question(this, tr("Download Dungeon Hack"), tr(
+            "Download Dungeon Hack from https://archive.org/details/DungeonHackUSA?\n\n"
+            "This is a community upload. You should own a copy of the game. "
+            "The download is approximately 13 MB."),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes)
+        return;
+    const QString destRoot = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                           + QStringLiteral("/dungeonhack");
+    if (!confirmDestructiveInstall(this, destRoot)) return;
+    QProgressDialog progress(tr("Downloading Dungeon Hack…"), tr("Cancel"), 0, 100, this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+    QNetworkAccessManager nam;
+    QNetworkRequest req{QUrl(QStringLiteral(
+        "https://archive.org/download/DungeonHackUSA/Dungeon%20Hack%20%28USA%29.zip"))};
+    req.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("thirdeye-launcher"));
+    req.setTransferTimeout(std::chrono::minutes(5));
+    QNetworkReply* reply = nam.get(req);
+    QEventLoop loop;
+    QByteArray bytes;
+    constexpr qsizetype maxDownload = 32 * 1024 * 1024;
+    connect(reply, &QNetworkReply::readyRead, &loop, [&] {
+        bytes += reply->readAll();
+        if (bytes.size() > maxDownload) reply->abort();
+    });
+    connect(reply, &QNetworkReply::downloadProgress, &loop, [&](qint64 got, qint64 total) {
+        if (total > 0) progress.setValue(int(got * 99 / total));
+    });
+    connect(&progress, &QProgressDialog::canceled, reply, &QNetworkReply::abort);
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+    reply->deleteLater();
+    if (progress.wasCanceled()) return;
+    auto error = [&](const QString& text) {
+        QMessageBox::critical(this, tr("Dungeon Hack installation failed"), text);
+    };
+    if (reply->error() != QNetworkReply::NoError) {
+        error(reply->errorString()); return;
+    }
+    bytes += reply->readAll();
+    if (bytes.size() > maxDownload) { error(tr("Download exceeds size limit.")); return; }
+    // Pin the distribution we support, including its CD/ARJ layout.
+    if (QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex() !=
+        QByteArrayLiteral("da81825d0467626755c8b3ad3fd2d49c57bcde6a031f7dca766a67a645fb5b36")) {
+        error(tr("Download checksum mismatch. The upload may have changed or been corrupted."));
+        return;
+    }
+    progress.setLabelText(tr("Extracting Dungeon Hack CD…"));
+    mz_zip_archive zip{};
+    if (!mz_zip_reader_init_mem(&zip, bytes.constData(), size_t(bytes.size()), 0)) {
+        error(tr("Download is not a readable ZIP.")); return;
+    }
+    const int index = mz_zip_reader_locate_file(&zip, "Dungeon Hack (USA).bin", nullptr, 0);
+    mz_zip_archive_file_stat st{};
+    if (index < 0 || !mz_zip_reader_file_stat(&zip, mz_uint(index), &st) ||
+        st.m_uncomp_size > 64 * 1024 * 1024) {
+        mz_zip_reader_end(&zip);
+        error(tr("CD image is missing or exceeds size limit.")); return;
+    }
+    size_t size = 0;
+    void* image = mz_zip_reader_extract_to_heap(&zip, mz_uint(index), &size, 0);
+    mz_zip_reader_end(&zip);
+    if (!image) { error(tr("Could not extract CD image.")); return; }
+    std::vector<ArjEntry> files;
+    std::string err;
+    const bool ok = extractDungeonHackCD(
+        {static_cast<const uint8_t*>(image), size}, files, err);
+    mz_free(image);
+    if (!ok) { error(QString::fromStdString(err)); return; }
+
+    // Validate every output path before writing any game data. CD archives
+    // contain DOS subdirectories; reject traversal, drive names and symlinks.
+    QStringList paths;
+    for (const auto& entry : files) {
+        QString name = QString::fromLatin1(entry.name.data(), qsizetype(entry.name.size()));
+        name.replace(QLatin1Char('\\'), QLatin1Char('/'));
+        const auto parts = name.split(QLatin1Char('/'));
+        QString path = destRoot;
+        if (name.contains(QLatin1Char(':')) || name.contains(QChar(0)) || QFileInfo(path).isSymLink()) {
+            error(tr("Unsafe archive path.")); return;
+        }
+        for (const auto& part : parts) {
+            if (part.isEmpty() || part == QLatin1String(".") || part == QLatin1String("..")) {
+                error(tr("Unsafe archive path.")); return;
+            }
+            path += QLatin1Char('/') + part;
+            if (QFileInfo(path).isSymLink()) { error(tr("Output path contains a symlink.")); return; }
+        }
+        paths.append(path);
+    }
+    for (size_t i = 0; i < files.size(); ++i) {
+        const QString& path = paths[qsizetype(i)];
+        QFile out(path);
+        if (!QDir().mkpath(QFileInfo(path).path()) || !out.open(QIODevice::WriteOnly) ||
+            out.write(reinterpret_cast<const char*>(files[i].data.data()),
+                      qint64(files[i].data.size())) != qint64(files[i].data.size()) ||
+            !out.flush()) {
+            error(tr("Could not write %1: %2").arg(path, out.errorString())); return;
+        }
+    }
+    progress.setValue(100);
+    m_pathEdit->setText(destRoot);
+    saveSettings();
+    QMessageBox::information(this, tr("Game data installed"),
+        tr("Dungeon Hack installed to:\n%1\n\nHit Play to start.").arg(destRoot));
+}
+
 void MainWindow::showGetGameDialog() {
     QDialog dlg(this);
     dlg.setWindowTitle(tr("Getting the game"));
@@ -624,15 +736,20 @@ void MainWindow::validatePath() {
         m_playBtn->setEnabled(false);
         return;
     }
-    // ponytail: bare exists check; add strict case check if Linux users report
-    // false positives after a case-preserving copy.
-    const bool found = QFileInfo::exists(QDir(dir).filePath(GAME_FILE));
-    if (found) {
-        m_pathStatus->setText(tr("<span style='color:#080'>✓ Found %1</span>").arg(GAME_FILE));
+    QString resource;
+    for (const auto& file : QDir(dir).entryList(QDir::Files)) {
+        if (file.compare(QLatin1String("EYE.RES"), Qt::CaseInsensitive) == 0 ||
+            file.compare(QLatin1String("HACK.RES"), Qt::CaseInsensitive) == 0) {
+            resource = file;
+            break;
+        }
+    }
+    if (!resource.isEmpty()) {
+        m_pathStatus->setText(tr("<span style='color:#080'>✓ Found %1</span>").arg(resource.toHtmlEscaped()));
         m_playBtn->setEnabled(true);
     } else {
         m_pathStatus->setText(tr(
-            "<span style='color:#a00'>%1 not found in this folder.</span>").arg(GAME_FILE));
+            "<span style='color:#a00'>EYE.RES or HACK.RES not found in this folder.</span>"));
         m_playBtn->setEnabled(false);
     }
 }
@@ -656,7 +773,15 @@ void MainWindow::play() {
         return;
     }
     QStringList args;
-    args << m_pathEdit->text();
+    QString gamePath = m_pathEdit->text();
+    for (const auto& file : QDir(gamePath).entryList(QDir::Files)) {
+        if (file.compare(QLatin1String("HACK.RES"), Qt::CaseInsensitive) == 0) {
+            gamePath = QDir(gamePath).filePath(file);
+            args << "--vm";
+            break;
+        }
+    }
+    args << gamePath;
     args << QString("--scale=%1").arg(m_scale->currentData().toInt());
     if (m_skipIntro->isChecked()) args << "--skip-intro";
     if (m_skipMenu->isChecked())  args << "--skip-menu";

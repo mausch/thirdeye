@@ -19,6 +19,7 @@ private slots:
     void browsePath();
     void installFromInstaller();
     void downloadFromInternetArchive();
+    void downloadDungeonHack();
     void showGetGameDialog();
     void play();
     void validatePath();

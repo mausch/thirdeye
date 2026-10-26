@@ -47,6 +47,7 @@ set(LAUNCHER
     main.cpp
     MainWindow.cpp
     unarj.cpp
+    dharchive.cpp
     resources/launcher.qrc
 )
 

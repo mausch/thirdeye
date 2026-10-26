@@ -69,6 +69,12 @@ endif()
 # runtime DLLs on PATH at build time (notably on Windows/vcpkg).
 add_test(NAME runtests COMMAND runtests)
 
+# CD installer parser tests run without Qt or game data.
+add_executable(dharchivetests dharchive_tests.cpp
+    ../launcher/dharchive.cpp ../launcher/unarj.cpp)
+target_link_libraries(dharchivetests PRIVATE GTest::gtest_main)
+add_test(NAME dharchivetests COMMAND dharchivetests)
+
 # Control-channel e2e (docs/control_channel.md): boots the real binary with
 # THIRDEYE_CTL, drives ping/party/key over the socket, asserts pose changed.
 # Skips (exit 77) unless THIRDEYE_TEST_DATA_DIR points at an EOB3 install.

@@ -560,6 +560,14 @@ bool unarjExtract(const std::vector<std::vector<uint8_t>>& volumes,
         uint64_t totalOrig = 0;
         for (const Piece* p : parts)
             totalOrig += p->origSize;
+        // Downloaded archives must not dictate unbounded allocations.
+        constexpr uint64_t maxExtracted = 256ULL * 1024 * 1024;
+        uint64_t alreadyExtracted = 0;
+        for (const auto& e : out) alreadyExtracted += e.data.size();
+        if (totalOrig > maxExtracted || alreadyExtracted > maxExtracted - totalOrig) {
+            err = "ARJ archive exceeds extraction size limit";
+            return false;
+        }
 
         ArjEntry entry;
         entry.name = first.name;
