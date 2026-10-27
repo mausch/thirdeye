@@ -19,6 +19,14 @@ with tempfile.TemporaryDirectory(prefix="dh-smoke-") as tmp:
     game = root / "game"
     shutil.copytree(args.game, game)
 
+    def game_file(name):
+        path = game
+        for part in name.split("/"):
+            match = next((entry for entry in path.iterdir()
+                          if entry.name.lower() == part.lower()), None) if path.is_dir() else None
+            path = match if match is not None else path / part
+        return path
+
     expected_party = None
     expected_hp = None
 
@@ -85,10 +93,10 @@ with tempfile.TemporaryDirectory(prefix="dh-smoke-") as tmp:
                             call("send 32 170 0 0 0")
                         except socket.timeout:
                             assert process.poll() is None
-                        assert not (game / "SAVEGAME/SAVE_01.BIN").exists()
-                        assert not (game / "SAVEGAME/ITEMS_01.BIN").exists()
-                        assert (game / "SAVEGAME/SAVE_02.BIN").exists()
-                        titles = (game / "SAVEGAME/SAVEGAME.DIR").read_bytes().splitlines()
+                        assert not game_file("SAVEGAME/SAVE_01.BIN").exists()
+                        assert not game_file("SAVEGAME/ITEMS_01.BIN").exists()
+                        assert game_file("SAVEGAME/SAVE_02.BIN").exists()
+                        titles = game_file("SAVEGAME/SAVEGAME.DIR").read_bytes().splitlines()
                         assert titles[0] == b"<empty>"
                         assert titles[1] == b"Other character"
                     elif mode == "new":
@@ -108,7 +116,7 @@ with tempfile.TemporaryDirectory(prefix="dh-smoke-") as tmp:
                             call(f"key {ord(char):04x}")
                         call("key 000d")
                         time.sleep(1)
-                        assert b"Smoke\r\n" in (game / "SAVEGAME/SAVEGAME.DIR").read_bytes()
+                        assert b"Smoke\r\n" in game_file("SAVEGAME/SAVEGAME.DIR").read_bytes()
                         return call("peek 0 1109 4"), call("peek 32 269 4")
                     elif mode == "resume":
                         call("click L 150 94")
@@ -126,9 +134,9 @@ with tempfile.TemporaryDirectory(prefix="dh-smoke-") as tmp:
                         assert call("peek 0 1112 1") == ["01"]
                         call("send 0 102 19 6 0 2")
                         assert call("peek 0 1112 1") == ["00"]
-                        level_count = ((game / "SAVEGAME/LEVELS.DAT").stat().st_size - 4) // 1024
+                        level_count = (game_file("SAVEGAME/LEVELS.DAT").stat().st_size - 4) // 1024
                         for level in list(range(1, level_count)) + list(range(level_count - 2, -1, -1)):
-                            entry = (game / f"SAVEGAME/FEA{level:02}.DAT").read_bytes()[:8]
+                            entry = game_file(f"SAVEGAME/FEA{level:02}.DAT").read_bytes()[:8]
                             call(f"send 0 102 {entry[1]} {entry[2]} {level} {entry[3]}")
                             assert call("peek 0 1112 1") == [f"{level:02x}"]
                         before = call("peek 0 1109 4")
@@ -146,12 +154,12 @@ with tempfile.TemporaryDirectory(prefix="dh-smoke-") as tmp:
                         updated = (game / "maps.txt").read_bytes()
                         assert len(updated) == len(exported)
                         assert updated.count(b"Level 01 in ") == 1
-                        assert (game / "SAVEGAME/SAVE_01.BIN").stat().st_size > 57
-                        assert (game / "SAVEGAME/ITEMS_01.BIN").stat().st_size > 1
+                        assert game_file("SAVEGAME/SAVE_01.BIN").stat().st_size > 57
+                        assert game_file("SAVEGAME/ITEMS_01.BIN").stat().st_size > 1
                         # Find a live low-level opponent in the saved object
                         # stream, approach it, and exercise weapon acquisition,
                         # attack rolls, damage and death through the PC handler.
-                        records = (game / "SAVEGAME/LVL00.TMP").read_bytes()
+                        records = game_file("SAVEGAME/LVL00.TMP").read_bytes()
                         pos = 1
                         opponent = None
                         while pos + 8 <= len(records):
@@ -188,13 +196,13 @@ with tempfile.TemporaryDirectory(prefix="dh-smoke-") as tmp:
 
     run("intro")
     run("direct")
-    (game / "SAVEGAME/SAVEGAME.DIR").write_bytes(b"<empty>\r\n" * 12 + b"\x1a")
+    game_file("SAVEGAME/SAVEGAME.DIR").write_bytes(b"<empty>\r\n" * 12 + b"\x1a")
     expected_party, expected_hp = run("new")
     run("resume")
-    other = bytearray((game / "SAVEGAME/SAVE_01.BIN").read_bytes())
+    other = bytearray(game_file("SAVEGAME/SAVE_01.BIN").read_bytes())
     other[0:4] = ((int.from_bytes(other[:4], "little") + 1) & 0xffffffff).to_bytes(4, "little")
-    (game / "SAVEGAME/SAVE_02.BIN").write_bytes(other)
-    titles = (game / "SAVEGAME/SAVEGAME.DIR").read_bytes()
-    (game / "SAVEGAME/SAVEGAME.DIR").write_bytes(titles.replace(b"<empty>", b"Other character", 1))
+    game_file("SAVEGAME/SAVE_02.BIN").write_bytes(other)
+    titles = game_file("SAVEGAME/SAVEGAME.DIR").read_bytes()
+    game_file("SAVEGAME/SAVEGAME.DIR").write_bytes(titles.replace(b"<empty>", b"Other character", 1))
     run("death")
 print("DH intro, new-game, transitions, combat, save UI, restart/restore, map export and permadeath deletion passed")

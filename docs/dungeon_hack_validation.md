@@ -20,6 +20,10 @@ save and item slots while retaining a different character's save. Input is
 injected through the control channel with SDL's
 dummy video driver.
 
+The same smoke test also passes against an installation whose files and
+directories have all been renamed to lowercase. Save-picker directory reads
+and writes resolve the existing DOS names case-insensitively.
+
 `ctest --test-dir build --output-on-failure` also checks the packed save
 header, filename validation, round trip and every truncation of a sample save.
 The CD parser's optional original-distribution integration test is enabled by

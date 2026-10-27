@@ -36,6 +36,24 @@ constexpr int kSlotNameLen = 32;     // padded name slot
 constexpr uint16_t kSaveBufObj = 0x3FFE; // unused obj id; staticsPtr routes here
 uint8_t gSlotNameBuf[kSaveSlots * kSlotNameLen] = {};
 
+std::filesystem::path saveDirectoryPath(Context& ctx) {
+	auto path = ctx.res.resourcePath().parent_path();
+	for (const std::string name : {"SAVEGAME", "SAVEGAME.DIR"}) {
+		auto child = path / name;
+		if (gDungeonHack && !std::filesystem::exists(child)) {
+			std::error_code ec;
+			for (const auto& entry : std::filesystem::directory_iterator(path, ec)) {
+				auto candidate = entry.path().filename().string();
+				for (char& c : candidate)
+					if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
+				if (candidate == name) { child = entry.path(); break; }
+			}
+		}
+		path = child;
+	}
+	return path;
+}
+
 void ensureSlotNameHook(VM::ObjectSystem &objects) {
 	// Install per-ObjectSystem instead of process-global: a second VM in the
 	// same process (tests, future split-engine scenarios) would otherwise
@@ -455,7 +473,7 @@ bool tryHandle(Context &ctx, const std::string &fn,
 		std::string name;
 		try {
 			auto entries = THIRDEYE::savegame::loadSaveDir(
-			    ctx.res.resourcePath().parent_path() / "SAVEGAME" / "SAVEGAME.DIR");
+			    saveDirectoryPath(ctx));
 			if (slot >= 0 && static_cast<size_t>(slot) < entries.size() &&
 			    entries[slot].used)
 				name = entries[slot].name;
@@ -596,8 +614,7 @@ bool tryHandle(Context &ctx, const std::string &fn,
 		std::memset(gSlotNameBuf, 0, sizeof(gSlotNameBuf));
 		try {
 			auto entries = THIRDEYE::savegame::loadSaveDir(
-			    ctx.res.resourcePath().parent_path() / "SAVEGAME" /
-			    "SAVEGAME.DIR");
+			    saveDirectoryPath(ctx));
 			for (size_t s = 0; s < entries.size() &&
 			                   s < static_cast<size_t>(kSaveSlots); ++s) {
 				uint8_t *p = gSlotNameBuf + s * kSlotNameLen;
@@ -617,8 +634,7 @@ bool tryHandle(Context &ctx, const std::string &fn,
 	// write_save_directory: serialize the slot-name buffer back to
 	// SAVEGAME.DIR (12 CRLF lines + trailing 0x1A, matching the shipped file).
 	if (fn == "write_save_directory") {
-		auto path = ctx.res.resourcePath().parent_path() / "SAVEGAME" /
-		            "SAVEGAME.DIR";
+		auto path = saveDirectoryPath(ctx);
 		std::ofstream out(path, std::ios::binary | std::ios::trunc);
 		constexpr int kDirSlots = 12; // NUM_SAVEGAMES
 		if (out) {
