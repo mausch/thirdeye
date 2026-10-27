@@ -39,6 +39,14 @@ uint8_t *staticBytePtr(Context &ctx, VM::Value addr, uint32_t size) {
 }
 
 bool uiScreenActive(VM::ObjectSystem &objects) {
+	if (gDungeonHack) {
+		const int kernel = objects.firstObjectOfClass(1972);
+		// Opening, character creation and customization run before the game
+		// kernel exists. Their text fields need literal ASCII, including WASD.
+		if (kernel < 0 || objects.firstObjectOfClass(2926) >= 0) return true;
+		if (auto* p = objects.classStaticPtr(kernel, 1972, 1136, 2))
+			if (p[0] || p[1]) return true; // W:current_screen (HACK.RES kernel)
+	}
 	constexpr uint16_t kKernelCls = 1382;
 	constexpr uint16_t kCampCls   = 1385;
 	int kn = objects.firstObjectOfClass(kKernelCls);

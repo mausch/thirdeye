@@ -165,6 +165,8 @@ private:
 		int boundHandle = -1;
 	};
 	std::map<int, TextWin> mTextWin;
+	std::vector<uint32_t> mMainTextPixels;
+	SDL_Rect mMainTextRect{};
 	// Built glyph sets, cached by font resource id (text_style is called every
 	// menu redraw -- we must not rebuild the font each frame).
 	std::map<int, std::shared_ptr<Font>> mFontCache;
@@ -400,6 +402,8 @@ public:
 	// Draw `text` at the window's cursor in its colour/font (glyphs are masks,
 	// tinted to the colour), advancing the cursor.
 	void printText(int wndnum, const std::string &text);
+	// Restore the separately retained main-message pane after a menu overlay.
+	void refreshMainTextWindow(bool present);
 };
 
 }

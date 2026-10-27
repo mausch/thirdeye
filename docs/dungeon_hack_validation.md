@@ -11,8 +11,14 @@ python3 scripts/dh_smoke.py build/thirdeye /path/to/dungeonhack
 
 The script copies the game to a temporary directory before writing saves. It
 checks automatic directory detection, opening → menu, Show Intro → opening →
-menu, and a live save/turn/restore round trip through the SOP handlers. Input
-is injected through the control channel with SDL's dummy video driver.
+menu, every generated level in both directions, live save/turn/restore,
+repeatable map export, and weapon damage through the PC's attack handler.
+It also selects a character from the normal new-game menu, saves through the
+camp picker, restarts the process and restores through Continue, checking HP
+and party position. A permadeath fixture verifies deletion of that character's
+save and item slots while retaining a different character's save. Input is
+injected through the control channel with SDL's
+dummy video driver.
 
 `ctest --test-dir build --output-on-failure` also checks the packed save
 header, filename validation, round trip and every truncation of a sample save.
@@ -46,14 +52,31 @@ Both shipped `.TBL` files were compared against their corresponding `.RES`
 directory offset arrays: their entries match, with a 36-byte zero trailer.
 The resource loader uses the embedded directories.
 
-## Remaining validation and failures
+## Runtime and interoperability checks
 
-Full Dungeon Hack support remains unfinished. A forced cross-level move through
-kernel message 102 stalls in `drain_event_queue`, before reaching the new
-`change_level` handler. Cross-level persistence therefore still needs an
-end-to-end test and the event stall needs investigation.
+The apparent cross-level stall was the game's modal manual-word challenge.
+A synchronous control-channel SEND waits for that dialog's completion. The
+automated transition fixture sets the kernel's verification-complete flag
+before travelling between levels.
 
-The smoke test verifies restoration within a running game. DOS save interchange,
-complete playthroughs, combat, and generator fidelity still need independent
-validation. Runtime imports including `delete_saves`, `cat_string`,
-`string_force_lower`, and map-export helpers also remain to be implemented.
+An import-name audit of all 334 HACK.RES code resources found eight missing
+runtime names. Implementations now cover concatenation, ASCII lowercase,
+character-save deletion, pixel drawing, main-text refresh and map-file export.
+The original executable's update_file opens an existing file for modification;
+the buffered implementation now maintains a write cursor so map export replaces
+an existing level's map rather than appending duplicates.
+
+Interchange was exercised with the downloaded AESOP.EXE in classic DOSBox:
+the original executable loaded a Thirdeye-written slot and rendered its dungeon
+and character. A new slot saved by DOS was then restored in Thirdeye with HP
+34/34 and party position x=19, y=28, facing=2, level=0.
+Set `THIRDEYE_TEST_DH_SAVE` to an original `SAVE_nn.BIN` to exercise the optional
+packed-save interoperability regression.
+
+## Remaining validation
+
+Complete playthroughs and exact generator fidelity still require validation.
+The automated combat check verifies weapon damage; additional spell, ranged
+combat, progression and victory scenarios need end-to-end coverage. The
+permadeath fixture checks save deletion before dismissing the death dialog.
+The manual-word prompt also needs a normal-input regression.

@@ -1653,6 +1653,23 @@ void GRAPHICS::Graphics::printText(int wndnum, const std::string &text) {
 				++pos; // ...and eat the boundary spaces the wrap consumed
 		}
 	}
+	if (wndnum == 0 && tw.winX0 >= 0 && tw.winY0 >= 0 &&
+	    tw.winX1 < WIDTH && tw.winY1 < HEIGHT &&
+	    tw.winX1 >= tw.winX0 && tw.winY1 >= tw.winY0) {
+		mMainTextRect = {tw.winX0, tw.winY0, tw.winX1 - tw.winX0 + 1, tw.winY1 - tw.winY0 + 1};
+		mMainTextPixels.clear();
+		for (int y = tw.winY0; y <= tw.winY1; ++y)
+			for (int x = tw.winX0; x <= tw.winX1; ++x)
+				mMainTextPixels.push_back(peekPixel(x, y));
+	}
+}
+
+void GRAPHICS::Graphics::refreshMainTextWindow(bool present) {
+	size_t i = 0;
+	for (int y = 0; y < mMainTextRect.h; ++y)
+		for (int x = 0; x < mMainTextRect.w; ++x)
+			pokePixel(mMainTextRect.x + x, mMainTextRect.y + y, mMainTextPixels[i++]);
+	if (present) update();
 }
 
 void GRAPHICS::Graphics::saveScreenshot(const std::string &path) {
@@ -1678,4 +1695,3 @@ void GRAPHICS::Graphics::mouseToLogical(int wx, int wy, int &lx, int &ly) const 
 		std::cout << "[mouse] event(" << wx << "," << wy << ") -> logical(" << lx
 		          << "," << ly << ")" << std::endl;
 }
-

@@ -476,7 +476,8 @@ bool tryHandle(Context &ctx, const std::string &fn,
 		if (p[0] == 0) {
 			std::memset(p, 0, kSlotNameLen);
 			if (name.empty()) {
-				std::memset(p, '_',
+				if (gDungeonHack) std::memcpy(p, "<empty>", 7);
+				else std::memset(p, '_',
 				            std::min<size_t>(kEmptyMarkLen, kSlotNameLen - 1));
 			} else {
 				size_t n = std::min(name.size(),
@@ -605,7 +606,8 @@ bool tryHandle(Context &ctx, const std::string &fn,
 					                    static_cast<size_t>(kSlotNameLen - 1));
 					std::memcpy(p, entries[s].name.data(), n);
 				} else {
-					std::memset(p, '_', 26);
+					if (gDungeonHack) std::memcpy(p, "<empty>", 7);
+					else std::memset(p, '_', 26);
 				}
 			}
 		} catch (const std::exception &) {}
@@ -630,7 +632,8 @@ bool tryHandle(Context &ctx, const std::string &fn,
 					              reinterpret_cast<const char *>(p),
 					              kSlotNameLen)));
 				} else {
-					for (int i = 0; i < 26; ++i) out.put('_');
+					if (gDungeonHack) out << "<empty>";
+					else for (int i = 0; i < 26; ++i) out.put('_');
 				}
 				out.write("\r\n", 2);
 			}

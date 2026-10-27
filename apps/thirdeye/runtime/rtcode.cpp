@@ -132,6 +132,24 @@ bool tryHandle(Context &ctx, const std::string &fn,
 		result = 0;
 		return true;
 	}
+	// DH AESOP.EXE 0a4f:0d54/0d6d wrap strcat(dest, src) and strlwr.
+	if (fn == "cat_string" && args.size() >= 2) {
+		const std::string text = ctx.vm.readString(args[1]) + ctx.vm.readString(args[0]);
+		auto* dest = staticBytePtr(ctx, args[1], static_cast<uint32_t>(text.size() + 1));
+		if (!dest) throw VM::VmError("cat_string destination out of range");
+		std::memcpy(dest, text.c_str(), text.size() + 1);
+		result = args[1];
+		return true;
+	}
+	if (fn == "string_force_lower" && !args.empty()) {
+		std::string text = ctx.vm.readString(args[0]);
+		for (char& c : text) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+		auto* dest = staticBytePtr(ctx, args[0], static_cast<uint32_t>(text.size() + 1));
+		if (!dest) throw VM::VmError("string_force_lower destination out of range");
+		std::memcpy(dest, text.c_str(), text.size() + 1);
+		result = args[0];
+		return true;
+	}
 	// load_string(array, string_res): copy an "S:"-prefixed string resource's
 	// text (sans prefix) into a SOP static array.
 	if (fn == "load_string" && args.size() >= 2) {

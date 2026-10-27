@@ -189,6 +189,34 @@ struct DHFile {
 };
 DHFile &currentFile() { static DHFile f; return f; }
 
+void writeInto(DHFile& f, const uint8_t* data, size_t size) {
+	if (!f.writing) throw VM::VmError("DH file is not open for writing");
+	if (size > 64 * 1024 * 1024 || f.cursor > 64 * 1024 * 1024 - size)
+		throw VM::VmError("DH file exceeds size limit");
+	if (f.cursor + size > f.buf.size()) f.buf.resize(f.cursor + size);
+	std::copy_n(data, size, f.buf.begin() + f.cursor);
+	f.cursor += size;
+}
+
+std::string mapHeader(Context& ctx, int level, VM::Value setting) {
+	const uint8_t* settings = staticBytePtr(ctx, setting, 19);
+	if (!settings || level < 1 || level > 25) throw VM::VmError("Invalid DH map header");
+	std::ifstream levels(resolveDosPath(ctx, "SAVEGAME\\LEVELS.DAT"), std::ios::binary);
+	uint8_t bytes[4]{};
+	levels.read(reinterpret_cast<char*>(bytes), 4);
+	if (!levels) throw VM::VmError("Cannot read DH map seed");
+	uint32_t seed = uint32_t(bytes[0]) | uint32_t(bytes[1]) << 8 |
+	                uint32_t(bytes[2]) << 16 | uint32_t(bytes[3]) << 24;
+	char prefix[32];
+	std::snprintf(prefix, sizeof(prefix), "Level %02d in %08lX ", level, static_cast<unsigned long>(seed));
+	std::string header = prefix;
+	for (int i = 0; i < 19; ++i) {
+		header += char(settings[i] + (settings[i] > 9 ? 'A' - 10 : '0'));
+		if (i == 12) header += ' ';
+	}
+	return header + "\r\n\r\n";
+}
+
 // Shared PRNG for seed_random / randomize_array / roll_chance. Independent of
 // rtcode.cpp's rnd() PRNG so seed_random(N) doesn't disturb SOP-visible rnd().
 std::mt19937 &dhRng() {
@@ -477,16 +505,7 @@ bool tryHandle(Context &ctx, const std::string &fn,
 		return true;
 	}
 
-	// -------- 3D wall renderer (naive first pass) --------
-	//
-	// Real DH's `draw_walls(x, y, facing, view_mode, wallset, &lvlmap,
-	// &floor_at)` iterates the party's forward cone and blits per-cell
-	// wall panels. The wallset (e.g. resource 196 "Rock Wallset") is a
-	// shape table with a sub-bitmap per (depth, position, wall-side)
-	// tuple. First pass: blit sub 0 across the view rectangle so we can
-	// SEE that pixels are being placed and iterate from there.
-	// ponytail: single-blit placeholder; upgrade to per-cell dispatch
-	// once we have the sub-bitmap layout mapped.
+	// -------- per-cell 3D wall renderer --------
 	if (fn == "draw_walls" && args.size() >= 7 && ctx.gfx) {
 		// draw_walls(party_x, party_y, facing, view_window, wallset_id,
 		//            &lvlmap[1024], &floor_at[18])
@@ -801,9 +820,10 @@ bool tryHandle(Context &ctx, const std::string &fn,
 			rt() << "  [" << fn << " with no file open for writing -- dropped]"
 			     << std::endl;
 		} else if (sz > 0 && sz <= 4) {
+			uint8_t bytes[4];
 			for (int i = 0; i < sz; ++i)
-				f.buf.push_back(static_cast<uint8_t>(
-				    (static_cast<uint32_t>(v) >> (8 * i)) & 0xFF));
+				bytes[i] = uint8_t(uint32_t(v) >> (8 * i));
+			writeInto(f, bytes, size_t(sz));
 		}
 		result = 0;
 		return true;
@@ -825,15 +845,49 @@ bool tryHandle(Context &ctx, const std::string &fn,
 			result = 0;
 			return true;
 		}
-		f.buf.insert(f.buf.end(), src, src + len);
+		writeInto(f, src, size_t(len));
 		result = 0;
 		return true;
 	}
 
-	// update_file(): the original flushes the buffer without closing. We
-	// accumulate in memory and flush at close, so there is nothing to do --
-	// but claim the name so it stops reporting as a stub.
-	if (fn == "update_file") {
+	// AESOP.EXE update_file(name) opens an existing file read/write. Map
+	// export then seeks to a matching header, replacing that level's map.
+	if (fn == "update_file" && !args.empty()) {
+		auto& f = currentFile();
+		f.reset();
+		f.name = ctx.vm.readString(args[0]);
+		f.path = resolveDosPath(ctx, f.name);
+		std::ifstream in(f.path, std::ios::binary);
+		if (!in) { result = -1; return true; }
+		f.buf.assign(std::istreambuf_iterator<char>(in), {});
+		f.open = f.writing = true;
+		result = 0;
+		return true;
+	}
+	if (fn == "write_resource_to_file" && !args.empty()) {
+		const auto& asset = ctx.res.getAsset(uint16_t(args[0]));
+		if (asset.size() < 2 || asset[0] != 'S' || asset[1] != ':')
+			throw VM::VmError("String resource required by write_resource_to_file");
+		std::vector<uint8_t> text;
+		for (size_t i = 2; i < asset.size() && asset[i]; ++i) {
+			if (asset[i] == '#') { text.push_back('\r'); text.push_back('\n'); }
+			else text.push_back(asset[i]);
+		}
+		writeInto(currentFile(), text.data(), text.size());
+		result = 0;
+		return true;
+	}
+	if ((fn == "write_mapheader_to_file" || fn == "find_location_for_map") && args.size() >= 2) {
+		auto& f = currentFile();
+		const auto header = mapHeader(ctx, args[0], args[1]);
+		if (fn == "write_mapheader_to_file") {
+			writeInto(f, reinterpret_cast<const uint8_t*>(header.data()), header.size());
+		} else {
+			// The DOS routine compares the first header line (41 bytes),
+			// rewinds to its start on a match, and otherwise leaves EOF.
+			const auto match = std::search(f.buf.begin(), f.buf.end(), header.begin(), header.begin() + 41);
+			f.cursor = size_t(match - f.buf.begin());
+		}
 		result = 0;
 		return true;
 	}

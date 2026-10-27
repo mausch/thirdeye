@@ -14,6 +14,9 @@ set(UNITTEST
     dhmaze_tests.cpp
     control_tests.cpp
     dhsave_tests.cpp
+    runtime_string_tests.cpp
+    ../thirdeye/runtime/internal.cpp
+    ../thirdeye/runtime/rtcode.cpp
     ../thirdeye/savegame/dh_save.cpp
     ../thirdeye/control.cpp
     ../thirdeye/automap.cpp  # control.cpp calls automap::toggle()

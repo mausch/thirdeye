@@ -1,6 +1,9 @@
 #include "gtest/gtest.h"
 #include "../thirdeye/savegame/dh_save.hpp"
 #include <algorithm>
+#include <cstdlib>
+#include <fstream>
+#include <iterator>
 
 using namespace THIRDEYE::savegame;
 
@@ -47,4 +50,23 @@ TEST(DHSave, RejectsUnsafePathsAndInvalidLevels) {
     EXPECT_FALSE(decodeDHSave(encodeDHSave(s), restored, error));
     s.settings[0] = 0; s.level = 10;
     EXPECT_FALSE(decodeDHSave(encodeDHSave(s), restored, error));
+}
+
+TEST(DHSave, OriginalDOSSave) {
+    const char* path = std::getenv("THIRDEYE_TEST_DH_SAVE");
+    if (!path) GTEST_SKIP() << "Set THIRDEYE_TEST_DH_SAVE to a DOS SAVE_nn.BIN";
+    std::ifstream in(path, std::ios::binary);
+    ASSERT_TRUE(in.good());
+    const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), {});
+    DHSave restored;
+    std::string error;
+    ASSERT_TRUE(decodeDHSave(bytes, restored, error)) << error;
+    EXPECT_TRUE(restored.files.contains("SAVEGAME\\LEVELS.DAT"));
+    EXPECT_TRUE(restored.files.contains("SAVEGAME\\ITEMS.DAT"));
+    EXPECT_TRUE(restored.files.contains("SAVEGAME\\VISIBLE.DAT"));
+    DHSave again;
+    ASSERT_TRUE(decodeDHSave(encodeDHSave(restored), again, error)) << error;
+    EXPECT_EQ(restored.files, again.files);
+    EXPECT_EQ(restored.seed, again.seed);
+    EXPECT_EQ(restored.character, again.character);
 }

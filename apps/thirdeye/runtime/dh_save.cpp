@@ -4,6 +4,7 @@
 #include "../vm/events.hpp"
 #include "../savegame/dh_save.hpp"
 #include "../savegame/lvl_tmp.hpp"
+#include "../savegame/savegame_dir.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -107,6 +108,33 @@ void restore(Context& c, const std::vector<Record>& saved, int first, int last) 
 
 bool trySaveCall(Context& c, const std::string& fn,
                  const std::vector<VM::Value>& a, VM::Value& result) {
+    // AESOP.EXE 0f36:10db deletes all slots belonging to this character.
+    if (fn == "delete_saves" && !a.empty()) {
+        auto titles = savegame::loadSaveDir(file(c, "SAVEGAME.DIR"));
+        titles.resize(12);
+        for (int slot = 1; slot <= 12; ++slot) {
+            const auto path = file(c, numbered("SAVE_", slot, ".BIN"));
+            if (!std::filesystem::is_regular_file(path)) continue;
+            const auto bytes = read(path);
+            if (bytes.size() < 4 || integer(bytes, 0, 4) != uint32_t(a[0])) continue;
+            std::error_code ec;
+            std::filesystem::remove(path, ec);
+            if (ec) throw VM::VmError("Cannot delete DH save");
+            std::filesystem::remove(file(c, numbered("ITEMS_", slot, ".BIN")), ec);
+            if (ec) throw VM::VmError("Cannot delete DH item save");
+            titles[slot - 1] = {};
+        }
+        std::string directory;
+        for (const auto& title : titles)
+            directory += (title.used ? title.name : "<empty>") + "\r\n";
+        directory += '\x1a';
+        if (!write(file(c, "SAVEGAME.DIR"),
+                   {reinterpret_cast<const uint8_t*>(directory.data()), directory.size()}))
+            throw VM::VmError("Cannot update DH save directory");
+        VM::Value ignored;
+        eye::tryHandle(c, "read_save_directory", {}, ignored);
+        result = 0; return true;
+    }
     if (fn == "save_visibility" && a.size() >= 2) {
         if (a[1] < 0 || a[1] >= 25) throw VM::VmError("Invalid DH visibility level");
         auto bytes = read(file(c, "VISIBLE.DAT"));

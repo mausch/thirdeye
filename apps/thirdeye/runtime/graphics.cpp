@@ -539,6 +539,16 @@ bool tryHandle(Context &ctx, const std::string &fn,
 	// draw_line(page, x1, y1, x2, y2, color) / draw_rectangle(wnd, x1, y1,
 	// x2, y2, color) / hash_rectangle(...): GIL2VFX line/outline/checkerboard
 	// primitives. Pages composite onto the one screen surface (as elsewhere).
+	if (fn == "refresh_main_text_window") {
+		ctx.gfx->refreshMainTextWindow(!args.empty() && args[0]);
+		result = 0;
+		return true;
+	}
+	if (fn == "draw_dot" && args.size() >= 4) {
+		ctx.gfx->drawLine(args[1], args[2], args[1], args[2], uint8_t(args[3]));
+		result = 0;
+		return true;
+	}
 	if (fn == "draw_line" && args.size() >= 6) {
 		ctx.gfx->drawLine(static_cast<int>(args[1]), static_cast<int>(args[2]),
 		                  static_cast<int>(args[3]), static_cast<int>(args[4]),
