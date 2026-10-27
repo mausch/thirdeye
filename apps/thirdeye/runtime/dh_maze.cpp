@@ -20,11 +20,8 @@
 // Split out of dh.cpp so the unit tests can link the generator without
 // dragging in the whole DH runtime (which needs the engine's globals).
 //
-// What is NOT here: MAZE's feature-placement tail (15 passes driven by the
-// FREQ_* settings that scatter treasure, traps, pits, monsters and the real
-// stairs). dh.cpp still synthesises those. Because the down-stairs pass
-// (1325:10a6) is part of that tail, we choose the stairs ourselves and feed
-// them forward as the next level's entry -- MAZE's chaining, our placement.
+// The feature-placement tail follows the geometry passes and emits the
+// feature/item records consumed by the dungeon SOP.
 
 namespace THIRDEYE::runtime::dh {
 
@@ -769,10 +766,35 @@ void passRegions(Gen &g, R250 &rng) {
 void passStairsDown(Gen &g, R250 &rng) {
 	LevelInfo &d = g.info();
 	auto open = [](uint8_t t) { return isFloorGlyph(t); };
+	// Room generation can leave isolated floor pockets. Stairs must be
+	// reachable from arrival through floor passages or generated teleporters.
+	std::vector<uint8_t> reachable(0x400);
+	std::vector<int> queue{d.entryRow * kW + d.entryCol};
+	reachable[queue.front()] = 1;
+	for (size_t head = 0; head < queue.size(); ++head) {
+		const int p = queue[head];
+		for (const auto& feature : g.feats()) {
+			if (feature.type != 21 || feature.y * kW + feature.x != p ||
+			    feature.p2 >= kW || feature.p3 >= kW) continue;
+			const int destination = feature.p3 * kW + feature.p2;
+			if (!reachable[destination]) {
+				reachable[destination] = 1;
+				queue.push_back(destination);
+			}
+		}
+		for (int dir = 0; dir < 4; ++dir) {
+			const int y = p / kW + kDRow[dir], x = p % kW + kDCol[dir];
+			if (y < 0 || y >= kW || x < 0 || x >= kW) continue;
+			const int next = y * kW + x;
+			if (reachable[next] || !open(g.lv.grid[next])) continue;
+			reachable[next] = 1;
+			queue.push_back(next);
+		}
+	}
 	for (int r = static_cast<int>(g.lv.regions.size()) - 1; r >= 0; --r) {
 		for (int p : regionCells(g.lv, r)) {
 			const int y = p / kW, x = p % kW;
-			if (g.lv.used[p]) continue;
+			if (g.lv.used[p] || !reachable[p]) continue;
 			const uint8_t m = mask4(g.lv, y, x, open);
 			if (m != 1 && m != 2 && m != 4 && m != 8) continue;
 			const int dir = (m == 1) ? 0 : (m == 2) ? 1 : (m == 4) ? 2 : 3;
@@ -1335,7 +1357,10 @@ void generateDungeon(uint8_t *chunks, int levels, uint32_t seed,
 	// --- 1325:375f, once per level ----------------------------------
 	int genRow = 0, genCol = 0;
 	for (int l = 0; l < levels; ++l) {
-		R250 rng(seed + static_cast<uint32_t>(l) + 1u);
+		// MAZE reseeds its single global R250 state at 1325:375f. Keep
+		// that state after the level for water items and the final passes.
+		top = R250(seed + static_cast<uint32_t>(l) + 1u);
+		auto& rng = top;
 		g.level = l;
 		g.lv = Level{};
 		g.lv.grid = chunks + static_cast<size_t>(l) * 0x400;
@@ -1407,7 +1432,7 @@ void generateDungeon(uint8_t *chunks, int levels, uint32_t seed,
 
 	// --- 1325:26f6: pits, which need two levels to line up ----------
 	{
-		R250 rng(seed ^ 0x50495453u);   // MAZE uses the global stream here
+		auto& rng = top; // 1325:3986 continues the final level's global stream
 		int n = freqCount(rng, kFreqPits, settings[7]);
 		for (int tries = 20; n > 0 && tries > 0; --tries) {
 			const int L = rng.range(1, levels - 2);
@@ -1435,7 +1460,7 @@ void generateDungeon(uint8_t *chunks, int levels, uint32_t seed,
 
 	// --- 1325:36a2: the quest objects -------------------------------
 	{
-		R250 rng(seed ^ 0x51554553u);
+		auto& rng = top;
 		for (int i = 0; i < 4; ++i) {
 			const int L = rng.range(4, levels - 1);
 			Level a;
@@ -1453,9 +1478,8 @@ void generateDungeon(uint8_t *chunks, int levels, uint32_t seed,
 
 	// --- 1325:4017: collapse the character map to the on-disk encoding.
 	// MAZE strips the region letters first (1325:1736) and runs this at write
-	// time off the global stream, so our wall *textures* differ from a real
-	// run even where the geometry matches. Nothing but the renderer reads them.
-	R250 tex(seed ^ 0x54455855u);
+	// time off the same global stream as the quest-object placement.
+	auto& tex = top;
 	for (int i = 0; i < levels * 0x400; ++i)
 		chunks[i] = (chunks[i] == kRock) ? static_cast<uint8_t>(tex.range(0, 1))
 		                                 : kFloor;

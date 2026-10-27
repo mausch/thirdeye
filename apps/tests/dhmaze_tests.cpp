@@ -11,6 +11,9 @@
 #include "../thirdeye/runtime/internal.hpp"
 
 #include <cstdint>
+#include <algorithm>
+#include <cstdlib>
+#include <string>
 #include <vector>
 
 using THIRDEYE::runtime::dh::R250;
@@ -142,6 +145,49 @@ TEST(DhMaze, EveryLevelIsStructurallySound) {
 			ASSERT_NE(g[i * 32], 0xFF)       << "L" << l << " col 0 row " << i;
 			ASSERT_NE(g[i * 32 + 30], 0xFF)  << "L" << l << " col 30 row " << i;
 			ASSERT_NE(g[i * 32 + 31], 0xFF)  << "L" << l << " col 31 row " << i;
+		}
+	}
+}
+
+TEST(DhMaze, StairsRemainReachableAcrossSeedsAndDepths) {
+	for (uint32_t seed : {1u, 2u, 3u, 17u, 12345u, 1465788u, kShippedSeed, 0xffffffffu}) {
+		for (int depth : {0, 15}) {
+			SCOPED_TRACE("seed=" + std::to_string(seed) + " depth=" + std::to_string(depth));
+			uint8_t settings[12];
+			std::copy_n(kShippedSettings, 12, settings);
+			settings[0] = uint8_t(depth);
+			const int levels = depth + 10;
+			std::vector<uint8_t> chunks(levels * 1024);
+			DungeonOut out;
+			generateDungeon(chunks.data(), levels, seed, settings, out);
+			for (int level = 0; level < levels - 1; ++level) {
+				SCOPED_TRACE("level=" + std::to_string(level));
+				const auto& info = out.info[level];
+				const auto* grid = chunks.data() + level * 1024;
+				std::vector<uint8_t> seen(1024);
+				std::vector<int> queue{info.entryRow * 32 + info.entryCol};
+				seen[queue[0]] = 1;
+				for (size_t head = 0; head < queue.size(); ++head) {
+					const int p = queue[head], row = p / 32, col = p % 32;
+					for (const auto& feature : out.features[level]) {
+						if (feature.type != 21 || feature.y * 32 + feature.x != p ||
+						    feature.p2 >= 32 || feature.p3 >= 32) continue;
+						const int destination = feature.p3 * 32 + feature.p2;
+						if (!seen[destination]) {
+							seen[destination] = 1;
+							queue.push_back(destination);
+						}
+					}
+					for (const int next : {p - 32, p + 32, p - 1, p + 1}) {
+						if (next < 0 || next >= 1024 ||
+						    std::abs(next / 32 - row) + std::abs(next % 32 - col) != 1 ||
+						    seen[next] || grid[next] != 0xff) continue;
+						seen[next] = 1;
+						queue.push_back(next);
+					}
+				}
+				EXPECT_TRUE(seen[info.stairRow * 32 + info.stairCol]);
+			}
 		}
 	}
 }

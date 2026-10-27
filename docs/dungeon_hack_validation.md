@@ -90,7 +90,27 @@ packed-save interoperability regression.
 
 ## Remaining validation
 
-Complete playthroughs and exact generator fidelity still require validation.
+The original MAZE.EXE was run under DOSBox with seed 1465788 and settings
+`00 01 07 07 01 01 01 01 07 00 00 00`. Comparing its ten maps with the native
+generator found 3,859 differing tile bytes. Separating occupancy from wall
+texture showed five occupancy differences on level 0 and larger differences
+on deeper levels. Both generators' R250 implementations were checked against
+the original seeding, lag and range instructions at load-image addresses
+`0x7665`, `0x76ce`, and `0x7721`.
+
+The native generator used separate XOR-seeded streams for pits, quest items
+and wall textures. The original outer loop at `0x6ca9`–`0x6d2a` continues the
+last level's global stream for these operations and water-level items. The
+native implementation now follows that lifetime. The controlled comparison
+after both generator fixes still has 3,790 differing bytes; complete seeded-generator fidelity requires
+further work on feature placement and level chaining.
+
+A separate reachability regression covers eight seeds at 10- and 25-level
+depths, traversing both floor passages and generated teleporter links. It
+reproduced inaccessible staircase placement before the new reachability gate
+in passStairsDown. Stair candidates now come from the arrival-reachable set.
+
+Complete playthroughs still require validation.
 The automated combat check verifies weapon damage; additional spell and ranged
 combat scenarios need end-to-end coverage. Reaching victory
 through a complete dungeon playthrough remains to be tested. The
