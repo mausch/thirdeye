@@ -23,6 +23,12 @@ static SDL_Surface *makeIndexedSurfaceFrom(void *pixels, int w, int h, int pitch
 	return s;
 }
 
+// Canvas-only tag. Literal RGB pixels are opaque (alpha 255); indexed pixels
+// carry alpha 254 and their palette index, and are copied without blending.
+static constexpr uint32_t kIndexedPixel = 0xFE000000u;
+// SDL colour keys compare RGB, so the gap must differ from index zero's RGB.
+static constexpr uint32_t kOmittedPixel = 0x00010000u;
+
 GRAPHICS::Graphics::Graphics(uint16_t scale, bool /*renderer*/) {
 	std::cout << "Initializing SDL... ";
 	mScale = scale;
@@ -67,6 +73,9 @@ GRAPHICS::Graphics::Graphics(uint16_t scale, bool /*renderer*/) {
 	                                 SDL_LOGICAL_PRESENTATION_LETTERBOX);
 
 	mPalette = SDL_CreatePalette(256);
+	mCanvasPalette = SDL_CreatePalette(256);
+	for (int i = 0; i < 256; ++i)
+		mCanvasPalette->colors[i] = SDL_Color{0, 0, static_cast<Uint8>(i), 254};
 	// SDL3 seeds palette entries to WHITE; any bitmap using a palette index
 	// the SOP hasn't loaded yet then renders as pure white. EOB3 hides this
 	// by loading the full palette on boot, but DH's opening cinematic starts
@@ -109,6 +118,8 @@ GRAPHICS::Graphics::~Graphics() {
 	mPages.clear();
 	if (mPresentTex != nullptr) SDL_DestroyTexture(mPresentTex);
 	SDL_DestroyPalette(mPalette);
+	SDL_DestroyPalette(mCanvasPalette);
+	SDL_DestroySurface(mResolvedScreen);
 	SDL_DestroyRenderer(mRenderer);
 	SDL_DestroyWindow(mWindow);
 	SDL_Quit();
@@ -261,10 +272,8 @@ void GRAPHICS::Graphics::drawImage(std::vector<uint8_t> &bmp, uint16_t index,
 		if (!maskData.empty()) flipY(maskData);
 	}
 
-	// VFX shapes with a mask render through an ARGB surface with true
-	// per-pixel alpha (transparency == the RLE's skip pixels); this keeps
-	// painted-black pixels opaque, matching VFX_shape_draw. Non-VFX shapes
-	// (empty mask) keep the legacy indexed + colorkey-0 path below.
+	// Masked shapes distinguish palette tokens from omitted pixels, keeping
+	// painted index zero opaque. Unmasked shapes use an indexed source.
 	const bool masked = transparency && !msk->empty() &&
 	                    msk->size() == static_cast<size_t>(iw) * ih;
 	SDL_Surface *surface;
@@ -276,16 +285,14 @@ void GRAPHICS::Graphics::drawImage(std::vector<uint8_t> &bmp, uint16_t index,
 			for (int x = 0; x < iw; ++x) {
 				size_t at = static_cast<size_t>(y) * iw + x;
 				if ((*msk)[at]) {
-					SDL_Color c = mPalette->colors[(*src)[at]];
-					out[y * stride + x] = 0xFF000000u | (c.r << 16) |
-					                      (c.g << 8) | c.b;
+					out[y * stride + x] = kIndexedPixel | (*src)[at];
 				} else {
-					out[y * stride + x] = 0;
+					out[y * stride + x] = kOmittedPixel;
 				}
 			}
 	} else {
 		surface = makeIndexedSurfaceFrom(
-				const_cast<uint8_t*>(src->data()), iw, ih, iw, mPalette);
+				const_cast<uint8_t*>(src->data()), iw, ih, iw, mCanvasPalette);
 	}
 
 	// Apply the AESOP depth-tier scale: shape shrinks to (scale/256) of native
@@ -359,8 +366,11 @@ void GRAPHICS::Graphics::drawImage(std::vector<uint8_t> &bmp, uint16_t index,
 		}
 	}
 
+	SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_NONE);
 	if (masked) {
-		SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_BLEND);
+		// Coverage is binary. Copy palette tokens exactly; only omitted pixels
+		// are transparent (including when the painted index is zero).
+		SDL_SetSurfaceColorKey(surface, true, kOmittedPixel);
 	} else if (transparency) {
 		SDL_SetSurfaceColorKey(surface, true, 0);
 	}
@@ -463,8 +473,9 @@ void GRAPHICS::Graphics::drawIndexed(const std::vector<uint8_t> &pixels,
 	if (static_cast<size_t>(width) * height > pixels.size()) return;
 
 	SDL_Surface *surface = makeIndexedSurfaceFrom(
-		const_cast<uint8_t *>(pixels.data()), width, height, width, mPalette);
+		const_cast<uint8_t *>(pixels.data()), width, height, width, mCanvasPalette);
 	if (!surface) return;
+	SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_NONE);
 	if (transparent) {
 		// Palette index 0 -> transparent. Sparkles use this so the slot
 		// frame shows through the empty parts of the sprite.
@@ -1160,7 +1171,8 @@ void GRAPHICS::Graphics::update() {
 		// Linear filter on upscale (the SDL2 hint we used to set globally).
 		SDL_SetTextureScaleMode(mPresentTex, SDL_SCALEMODE_LINEAR);
 	}
-	SDL_UpdateTexture(mPresentTex, nullptr, mScreen->pixels, mScreen->pitch);
+	SDL_Surface *resolved = resolveScreen();
+	SDL_UpdateTexture(mPresentTex, nullptr, resolved->pixels, resolved->pitch);
 	SDL_RenderClear(mRenderer);
 	SDL_RenderTexture(mRenderer, mPresentTex, nullptr, nullptr);
 	SDL_RenderPresent(mRenderer);
@@ -1672,8 +1684,31 @@ void GRAPHICS::Graphics::refreshMainTextWindow(bool present) {
 	if (present) update();
 }
 
+SDL_Surface *GRAPHICS::Graphics::resolveScreen() {
+	if (!mResolvedScreen)
+		mResolvedScreen = SDL_CreateSurface(WIDTH, HEIGHT, SDL_PIXELFORMAT_ARGB8888);
+	// 0xFE0000ii is an indexed canvas pixel; ordinary RGB drawing uses opaque
+	// 0xFFrrggbb. Keeping the tag in the pixel also preserves indices through
+	// offscreen copies, backdrop restoration and pixel dissolves.
+	for (int y = 0; y < HEIGHT; ++y) {
+		const auto *src = reinterpret_cast<const uint32_t *>(
+		    static_cast<const uint8_t *>(mScreen->pixels) + y * mScreen->pitch);
+		auto *dst = reinterpret_cast<uint32_t *>(
+		    static_cast<uint8_t *>(mResolvedScreen->pixels) + y * mResolvedScreen->pitch);
+		for (int x = 0; x < WIDTH; ++x) {
+			uint32_t pixel = src[x];
+			if ((pixel & 0xFFFFFF00u) == kIndexedPixel) {
+				SDL_Color c = mPalette->colors[pixel & 255];
+				pixel = 0xFF000000u | (uint32_t(c.r) << 16) | (uint32_t(c.g) << 8) | c.b;
+			}
+			dst[x] = pixel;
+		}
+	}
+	return mResolvedScreen;
+}
+
 void GRAPHICS::Graphics::saveScreenshot(const std::string &path) {
-	if (!SDL_SaveBMP(mScreen, path.c_str()))
+	if (!SDL_SaveBMP(resolveScreen(), path.c_str()))
 		std::cerr << "saveScreenshot failed: " << SDL_GetError() << std::endl;
 }
 

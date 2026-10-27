@@ -105,6 +105,11 @@ private:
 	SDL_Texture *mPresentTex = nullptr;
 	SDL_Cursor *mCursor;
 	SDL_Palette *mPalette;
+	// Indexed art stays palette-addressed on the software canvas. Resolve it
+	// only for display, so later DAC writes also recolour already drawn art.
+	SDL_Palette *mCanvasPalette = nullptr;
+	SDL_Surface *mResolvedScreen = nullptr;
+	SDL_Surface *resolveScreen();
 	uint8_t mState;
 	int16_t mAlpha;
 	uint16_t mFrames;

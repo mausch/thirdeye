@@ -11,6 +11,7 @@ set(UNITTEST
     clip_tests.cpp
     codetable_tests.cpp
     bitmapmask_tests.cpp
+    palette_canvas_tests.cpp
     dhmaze_tests.cpp
     control_tests.cpp
     dhsave_tests.cpp
