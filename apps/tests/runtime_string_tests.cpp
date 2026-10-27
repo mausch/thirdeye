@@ -8,6 +8,34 @@
 #include <cstring>
 
 namespace {
+TEST(RuntimeStrings, DungeonHackEndingLaunchPreservesResourceAndBootObject) {
+    RESOURCES::Resource res{std::filesystem::path(TESTS_DATA_DIR) / "SAMPLE.RES"};
+    VM::ObjectSystem objects;
+    VM::EventSystem events(objects);
+    std::map<int32_t, int32_t> mem;
+    THIRDEYE::savegame::TransferState transfer;
+    std::vector<uint8_t> code(14);
+    const char strings[] = ".\0aesop.exe\0open\0TM";
+    code.insert(code.end(), strings, strings + sizeof(strings));
+    VM::Interpreter vm(code);
+    THIRDEYE::runtime::Context ctx{objects, events, nullptr, res, mem, transfer, vm};
+    auto address = [](uint32_t offset) { return VM::makeAddr(VM::AddrSpace::Code, offset); };
+    const bool old = THIRDEYE::runtime::gDungeonHack;
+    THIRDEYE::runtime::gDungeonHack = true;
+    VM::Value result = 0;
+    bool launched = false;
+    try {
+        THIRDEYE::runtime::rtobject::tryHandle(ctx, "launch",
+            {address(14), address(16), address(26), address(31)}, result);
+    } catch (const THIRDEYE::runtime::Relaunch& launch) {
+        launched = true;
+        EXPECT_EQ(launch.program, "aesop.exe");
+        EXPECT_EQ(launch.extras, (std::vector<std::string>{"open", "TM"}));
+    }
+    THIRDEYE::runtime::gDungeonHack = old;
+    EXPECT_TRUE(launched);
+}
+
 TEST(RuntimeStrings, DungeonHackTextInputIsNotMovement) {
     VM::ObjectSystem objects;
     const bool old = THIRDEYE::runtime::gDungeonHack;

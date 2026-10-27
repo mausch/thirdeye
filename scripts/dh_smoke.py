@@ -182,6 +182,13 @@ with tempfile.TemporaryDirectory(prefix="dh-smoke-") as tmp:
                                 break
                         else:
                             raise AssertionError("Weapon attacks did not damage the opponent")
+                        levels_before = bytes.fromhex(call("peek 32 257 3")[0])
+                        xp_before = struct.unpack("<III", bytes.fromhex(call("peek 32 277 12")[0]))
+                        call("send 32 253 50000")
+                        levels_after = bytes.fromhex(call("peek 32 257 3")[0])
+                        xp_after = struct.unpack("<III", bytes.fromhex(call("peek 32 277 12")[0]))
+                        assert sum(xp_after) - sum(xp_before) >= 49998
+                        assert all(after >= before for before, after in zip(levels_before, levels_after))
             finally:
                 process.terminate()
                 try:

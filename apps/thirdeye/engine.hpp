@@ -103,7 +103,8 @@ private:
 	/// first runtime function / opcode we haven't implemented.
 	// Returns a resource filename when the DOS batch chain switches programs.
 	// Empty means the session ended (including window-close and VM errors).
-	std::string bootObject(RESOURCES::Resource &resource, const std::string &objectName);
+	std::string bootObject(RESOURCES::Resource &resource, const std::string &objectName,
+	                       std::string* nextBoot = nullptr);
 
 	/// Play thirdeye's internal stand-in for a launched DOS sub-program (the
 	/// intro cinematic, character generation, ...). Called when a menu choice

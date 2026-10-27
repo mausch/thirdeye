@@ -9,10 +9,21 @@ nix develop -c bash -c 'cmake -S . -B build -G Ninja $cmakeFlags -DCMAKE_BUILD_T
 python3 scripts/dh_smoke.py build/thirdeye /path/to/dungeonhack
 ```
 
+The victory-dialog and ending-chain regression uses X11 input:
+
+```sh
+nix shell nixpkgs#xvfb-run nixpkgs#xdotool nixpkgs#python3 -c xvfb-run -a python3 scripts/dh_ending_smoke.py build/thirdeye /path/to/dungeonhack
+```
+
+It invokes the kernel's endgame handler, dismisses its modal dialog with real
+SDL keyboard input, and verifies that `OPEN.RES`'s `TM` ending object boots.
+The ending scene was also captured and inspected after the transition.
+
 The script copies the game to a temporary directory before writing saves. It
 checks automatic directory detection, opening → menu, Show Intro → opening →
 menu, every generated level in both directions, live save/turn/restore,
-repeatable map export, and weapon damage through the PC's attack handler.
+repeatable map export, weapon damage through the PC's attack handler and
+experience awards through its progression handler.
 It also selects a character from the normal new-game menu, saves through the
 camp picker, restarts the process and restores through Continue, checking HP
 and party position. A permadeath fixture verifies deletion of that character's
@@ -80,7 +91,8 @@ packed-save interoperability regression.
 ## Remaining validation
 
 Complete playthroughs and exact generator fidelity still require validation.
-The automated combat check verifies weapon damage; additional spell, ranged
-combat, progression and victory scenarios need end-to-end coverage. The
+The automated combat check verifies weapon damage; additional spell and ranged
+combat scenarios need end-to-end coverage. Reaching victory
+through a complete dungeon playthrough remains to be tested. The
 permadeath fixture checks save deletion before dismissing the death dialog.
 The manual-word prompt also needs a normal-input regression.

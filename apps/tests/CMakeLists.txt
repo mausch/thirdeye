@@ -17,6 +17,7 @@ set(UNITTEST
     runtime_string_tests.cpp
     ../thirdeye/runtime/internal.cpp
     ../thirdeye/runtime/rtcode.cpp
+    ../thirdeye/runtime/rtobject.cpp
     ../thirdeye/savegame/dh_save.cpp
     ../thirdeye/control.cpp
     ../thirdeye/automap.cpp  # control.cpp calls automap::toggle()

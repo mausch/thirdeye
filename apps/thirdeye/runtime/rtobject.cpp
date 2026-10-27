@@ -55,6 +55,13 @@ bool tryHandle(Context &ctx, const std::string &fn,
 		// (e.g. "INTRO.GFF" / "FINALE.GFF" for CINE.EXE) — runExternalProgram
 		// dispatches on them.
 		Relaunch r;
+		if (gDungeonHack && args.size() == 4) {
+			// DH uses launch(directory, executable, resource, boot_object).
+			r.program = ctx.vm.readString(args[1]);
+			for (size_t i = 2; i < args.size(); ++i)
+				r.extras.push_back(ctx.vm.readString(args[i]));
+			throw r;
+		}
 		for (const VM::Value &a : args) {
 			std::string s = ctx.vm.readCodeString(static_cast<uint32_t>(a));
 			if (s.empty()) continue;

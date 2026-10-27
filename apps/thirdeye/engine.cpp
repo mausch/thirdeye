@@ -910,7 +910,8 @@ void THIRDEYE::Engine::runResourceVM(RESOURCES::Resource &resource) {
 // send MSG_CREATE). This runs the real boot path and stops at the first runtime
 // function / opcode we haven't built yet -- our data-driven bring-up to-do list.
 std::string THIRDEYE::Engine::bootObject(RESOURCES::Resource &resource,
-                                  const std::string &objectName) {
+                                  const std::string &objectName, std::string* nextBoot) {
+	if (nextBoot) nextBoot->clear();
 	// Open a window so the SOP runtime's draw calls have somewhere to render.
 	// If there's no display (headless/CI), fall back to running without graphics
 	// (the runtime draw functions then no-op through to the stub).
@@ -1303,6 +1304,22 @@ std::string THIRDEYE::Engine::bootObject(RESOURCES::Resource &resource,
 			          << " -- quitting." << std::endl;
 			quit = true;
 		} catch (const Relaunch &r) {
+			std::string program = r.program;
+			std::transform(program.begin(), program.end(), program.begin(),
+			               [](unsigned char c) { return std::tolower(c); });
+			if (THIRDEYE::runtime::gDungeonHack && program == "aesop.exe" &&
+			    r.extras.size() == 2 && nextBoot) {
+				// Victory chains to OPEN.RES's TM ending rather than opening.
+				std::string target = r.extras[0];
+				std::transform(target.begin(), target.end(), target.begin(),
+				               [](unsigned char c) { return std::toupper(c); });
+				if (target != "OPEN" && target != "HACK")
+					throw std::runtime_error("Unknown DH resource in launch");
+				nextResource = target + ".RES";
+				*nextBoot = r.extras[1];
+				quit = true;
+				continue;
+			}
 			relaunch = r.program.empty() ? " " : r.program; // mark for handling
 			relaunchExtras = r.extras;
 		} catch (const VM::VmError &e) {
@@ -1644,13 +1661,14 @@ void THIRDEYE::Engine::go() {
 			    !THIRDEYE::runtime::dh::ensureSavegameFiles(root)) {
 				throw std::runtime_error("DH dungeon generation failed");
 			}
-			const std::string next = bootObject(*active, bootName);
+			std::string chainedBoot;
+			const std::string next = bootObject(*active, bootName, &chainedBoot);
 			if (next.empty()) break;
 			const auto path = resolveChildCI(root, next);
 			std::cout << "  [DH program chain -> " << path.filename().string() << "]" << std::endl;
 			chainedResource = std::make_unique<RESOURCES::Resource>(path);
 			active = chainedResource.get();
-			bootName = next == "OPEN.RES" ? "opening" : "phase-one";
+			bootName = chainedBoot.empty() ? (next == "OPEN.RES" ? "opening" : "phase-one") : chainedBoot;
 		}
 		return;
 	}
