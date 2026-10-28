@@ -347,8 +347,9 @@ Value Interpreter::run() {
 			// procedure's current operand top (mSp), which is deep below the auto
 			// frame + temporaries. (The old code popped from mSp and also clobbered
 			// its own read pointer via `mSp = popVal()`, so it only worked for
-			// trivial zero-local procedures.) JSR is net +1: leave the procedure's
-			// return value on the caller's operand stack, like CALL.
+			// trivial zero-local procedures.) The caller reserves the result slot
+			// before JSR. Replace it, preserving any operands below it (e.g. a
+			// static-array index awaiting the procedure's result).
 			Value ret = topVal();
 			uint32_t savedFptr = static_cast<uint32_t>(readStk(mFptr));
 			uint32_t savedSp   = static_cast<uint32_t>(readStk(mFptr + kValueSize));
@@ -356,7 +357,7 @@ Value Interpreter::run() {
 			mFptr = savedFptr;
 			mPC   = savedPc;
 			mSp   = savedSp;
-			pushVal(ret);
+			setTop(ret);
 			break;
 		}
 

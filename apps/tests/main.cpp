@@ -372,6 +372,46 @@ TEST (VM_Test, JsrRtsReturnsValueAcrossAutoFrame) {
 	EXPECT_EQ(42, vm.execute(14));
 }
 
+TEST (VM_Test, JsrRtsReplacesReservedResultSlot) {
+	std::vector<uint8_t> code(14, 0);
+	// As in DH PC.magic recovery: an array index below a reserved result
+	// slot must survive a procedure call. Adding the returned delay detects
+	// an extra slot even when the return value itself is correct.
+	const std::vector<uint8_t> handler = {
+		2, 0, SHTC, 16, PUSH, JSR, 24, 0, ADD, END
+	};
+	code.insert(code.end(), handler.begin(), handler.end());
+	const std::vector<uint8_t> procedure = {2, 0, SHTC, 20, RTS};
+	code.insert(code.end(), procedure.begin(), procedure.end());
+	VM::Interpreter vm{std::move(code)};
+	EXPECT_EQ(36, vm.execute(14));
+}
+
+TEST (VM_Test, ProcedureResultStoresInSelectedTimer) {
+	// DH PC.magic recovery computes timer[type == mage ? 3 : 4],
+	// reserves a result slot, calls a procedure returning 20, then SSDA.
+	for (uint8_t timer : {3, 4}) {
+		std::vector<uint8_t> code(14, 0);
+		const std::vector<uint8_t> handler = {
+			2, 0, SHTC, static_cast<uint8_t>(timer * 4), PUSH,
+			JSR, 26, 0, 0x44, 0, 0, END // SSDA @0; END
+		};
+		code.insert(code.end(), handler.begin(), handler.end());
+		const std::vector<uint8_t> procedure = {2, 0, SHTC, 20, RTS};
+		code.insert(code.end(), procedure.begin(), procedure.end());
+		std::vector<uint8_t> statics(60, 0xff);
+		VM::Interpreter vm{std::move(code)};
+		vm.setStatics(&statics);
+		EXPECT_EQ(20, vm.execute(14));
+		for (size_t i = 0; i < statics.size(); ++i) {
+			uint8_t expected = 0xff;
+			if (i >= timer * 4u && i < timer * 4u + 4)
+				expected = i == timer * 4u ? 20 : 0;
+			EXPECT_EQ(expected, statics[i]) << "timer=" << int(timer) << " byte=" << i;
+		}
+	}
+}
+
 // --- Inherited statics: parent and child each get their own block ---
 // The instance allocates the whole chain's statics (base-class-first), and a
 // handler's static offsets are relative to its DEFINING class's block.
