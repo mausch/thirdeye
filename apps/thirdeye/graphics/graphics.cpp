@@ -376,6 +376,22 @@ void GRAPHICS::Graphics::drawImage(std::vector<uint8_t> &bmp, uint16_t index,
 	}
 	if (dw == iw && dh == ih)
 		SDL_BlitSurface(surface, NULL, mScreen, &dest);
+	else if (masked) {
+		// SDL 3.4.18's clipped SDL_BlitSurfaceScaled path scales into an
+		// intermediate surface which inherits the colour-key flag but loses
+		// its value. Our omitted-pixel sentinel then gets copied as near-black
+		// RGB, giving off-centre monsters a solid rectangle. Scale explicitly
+		// and restore the key before the ordinary (clipped) blit. Copy tokens
+		// without alpha blending so palette indices survive unchanged.
+		SDL_Surface *scaled = SDL_ScaleSurface(surface, dw, dh,
+		                                       SDL_SCALEMODE_NEAREST);
+		if (scaled) {
+			SDL_SetSurfaceBlendMode(scaled, SDL_BLENDMODE_NONE);
+			SDL_SetSurfaceColorKey(scaled, true, kOmittedPixel);
+			SDL_BlitSurface(scaled, NULL, mScreen, &dest);
+			SDL_DestroySurface(scaled);
+		}
+	}
 	else
 		SDL_BlitSurfaceScaled(surface, NULL, mScreen, &dest,
 		                      SDL_SCALEMODE_NEAREST);
