@@ -11,14 +11,11 @@ For the high-level phase plan see [roadmap.md](roadmap.md); for engine internals
 it `MSG_CREATE` — this is AESOP's program-chain bootstrap. Per-instance statics live in a
 `std::deque` so a running handler's static pointer stays valid when nested creates grow the
 list. Safety nets: an **instruction budget** (`setMaxSteps`) and a **SEND/PASS recursion-depth
-guard** (`kMaxDepth`). `destroy_object` calls MSG_DESTROY and cancels the object's outstanding
-notify requests. `release_owned_windows` is implemented (`EventSystem::releaseOwnedWindows`
-matches RTOBJECT.C/GRAPHICS.C verbatim) but **not wired into destroy_object yet** — attempting
-that broke the ALL ATTACK button (kernel's "swap request" path destroys some transient object
-whose slot happens to have been recorded as the button subwindow's `owner`; reaping it killed
-the button on the second frame). The start-self-destroy `resetInstances()` sweep at each menu
-cycle boundary still bounds the leak in practice. Real fix pending: find the mis-owned
-subwindow assignment.
+guard** (`kMaxDepth`). `destroy_object` calls MSG_DESTROY, cancels the object's outstanding
+notify requests, and releases its owned windows. Direct level/save restoration paths also
+release windows before replacing or restoring object state. Repeated camp-menu destruction
+previously leaked two windows per object and exhausted the 256-entry table. Live EOB3 checks
+confirmed that owned-window cleanup preserves ALL ATTACK after menu cycling and party swaps.
 
 ✅ **Unified address model + effective-address opcodes.** Code/stack/static live in separate
 buffers, so an effective address is a tagged `Value`. See [architecture.md](architecture.md).

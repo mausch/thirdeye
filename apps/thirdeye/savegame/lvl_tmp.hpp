@@ -26,9 +26,9 @@ namespace THIRDEYE::savegame {
 // helper no longer needs to collect monster classes for the caller.
 //
 // Destroy-before-restore mirrors RTOBJECT.C destroy_object: MSG_DESTROY plus
-// cancel_entity_requests -- hence the EventSystem parameter (skipping the
-// cancel leaked every replaced object's notify requests until the 768-slot
-// list overflowed and late-loading monsters lost their AI notifies).
+// cancel_entity_requests and release_owned_windows -- hence the EventSystem
+// parameter (skipping the cancel leaked every replaced object's notify requests
+// until the 768-slot list overflowed and late-loading monsters lost their AI notifies).
 //
 // Returns the number of objects placed.
 int loadLevelObjects(int level, VM::ObjectSystem &objects,

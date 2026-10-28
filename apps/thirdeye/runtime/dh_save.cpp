@@ -84,6 +84,7 @@ std::vector<Record> records(Context& c, const Bytes& bytes, int first, int last)
 void destroy(Context& c, int slot) {
     c.objects.destroyObject(slot);
     c.events.cancelEntityRequests(slot);
+    c.events.releaseOwnedWindows(slot);
 }
 void restore(Context& c, const std::vector<Record>& saved, int first, int last) {
     size_t i = 0;
@@ -98,6 +99,7 @@ void restore(Context& c, const std::vector<Record>& saved, int first, int last) 
             c.objects.createInstance(slot, uint16_t(r->cls));
         } else {
             c.events.cancelEntityRequests(slot);
+            c.events.releaseOwnedWindows(slot);
         }
         if (!r->data.empty()) std::memcpy(c.objects.staticsPtr(slot, 0, uint32_t(r->data.size())),
                                          r->data.data(), r->data.size());

@@ -84,6 +84,7 @@ int loadLevelObjects(int level, VM::ObjectSystem &objects,
 		try { objects.destroyObject(id); }
 		catch (const std::exception &) {}
 		events.cancelEntityRequests(id);
+		events.releaseOwnedWindows(id);
 		if (clsName == 0xFFFFFFFFu || size < 6)
 			continue; // dead slot
 		uint16_t cls = static_cast<uint16_t>(clsName);
@@ -200,6 +201,7 @@ int loadLevelObjects(int level, VM::ObjectSystem &objects,
 				try { objects.destroyObject(id); }
 				catch (const std::exception &) {}
 				events.cancelEntityRequests(id);
+				events.releaseOwnedWindows(id);
 			}
 		}
 	}
