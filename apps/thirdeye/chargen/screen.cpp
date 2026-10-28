@@ -1057,8 +1057,9 @@ void render(GRAPHICS::Graphics &gfx,
 //    43    45     4   experience[1] (-1 if single-class)
 //    47    49     4   experience[2] (-1 if single-class)
 //
-// Class remap: our chargen UI lists FIGHTER/RANGER/PALADIN/MAGE/CLERIC/
-// THIEF, but the EOB1 byte uses F/M/C/T/P/R. Map at write time.
+// The saved class identity uses the chargen UI order (F/R/P/M/C/T,
+// then multi-class entries). Component classes used for XP instead use
+// F/M/C/T/P/R; do not apply that component mapping to the identity byte.
 //
 // HP / XP fall back to plausible level-11 fighter values (matching the
 // default party's Bob); class-aware tables are a follow-up.
@@ -1073,14 +1074,11 @@ bool writeCreateSav(const std::filesystem::path &chargenDir,
 	}
 	constexpr size_t kPcBase = 0x16;
 	constexpr size_t kPcStride = 345;
-	// Chargen UI index -> EOB1 PC class byte. Single classes get reordered
-	// (UI F/R/P/M/C/T -> EOB1 F/M/C/T/P/R = 0/1/2/3/4/5); multi-class entries
-	// keep their chargen index (6..14 map identically because both lists use
-	// the same multi-class ordering: F/C, F/T, F/M, F/M/T, T/M, C/T, F/C/M,
-	// R/C, C/M -- confirmed against CHGEN's string table).
-	constexpr int kClassToEob1[15] = {
+	// Chargen single-class index -> component-class index for baseXp.
+	// EYE.RES tables.component class uses F/M/C/T/P/R for components,
+	// whereas PC.B:classes and the character-screen name table use UI order.
+	constexpr int kClassToComponent[6] = {
 		0, 5, 4, 1, 2, 3,
-		6, 7, 8, 9, 10, 11, 12, 13, 14,
 	};
 	// Base XP values per EOB1 class @ level 11 (rough -- adequate for HUD
 	// purposes; the game accepts a wide range here, won't reject the party).
@@ -1133,9 +1131,9 @@ bool writeCreateSav(const std::filesystem::path &chargenDir,
 		patchU16(rec + 25, hp);
 		patchU16(rec + 27, hp);
 		// race / class / alignment / portrait
-		int eob1Class = (c.klass >= 0 && c.klass < 15) ? kClassToEob1[c.klass] : 0;
+		int savedClass = (c.klass >= 0 && c.klass < 15) ? c.klass : 0;
 		patchU8(rec + 31, static_cast<uint8_t>(std::max(0, c.race)));
-		patchU8(rec + 32, static_cast<uint8_t>(eob1Class));
+		patchU8(rec + 32, static_cast<uint8_t>(savedClass));
 		patchU8(rec + 33, static_cast<uint8_t>(std::max(0, c.alignment)));
 		patchU8(rec + 34, static_cast<uint8_t>(c.portrait & 0xff));
 		// levels[3] + experience[3]: one entry per component class for multi-
@@ -1154,7 +1152,7 @@ bool writeCreateSav(const std::filesystem::path &chargenDir,
 				patchU8(rec + 36 + i, static_cast<uint8_t>(c.lvl));
 				int compClass = klassInRange ? kClassComponents[c.klass][i] : -1;
 				int compEob1  = (compClass >= 0 && compClass < 6)
-				              ? kClassToEob1[compClass] : eob1Class;
+				              ? kClassToComponent[compClass] : 0;
 				uint32_t xp = baseXp(compEob1) / static_cast<uint32_t>(nComp);
 				patchI32(rec + 39 + i * 4, static_cast<int32_t>(xp));
 			} else {
