@@ -287,6 +287,34 @@ TEST(DhMaze, EveryLockHasItsKey) {
 	EXPECT_EQ(locks, keys);
 }
 
+TEST(DhMaze, DoorOpenersDoNotFaceIntoTheClosedDoor) {
+	const Dungeon d = build();
+	constexpr int dy[] = {-1, 0, 1, 0};
+	constexpr int dx[] = {0, 1, 0, -1};
+	int checked = 0;
+	for (int l = 0; l < kLevels; ++l) {
+		const auto& features = d.out.features[l];
+		for (const auto& door : features) {
+			if (door.type != 1) continue;
+			for (auto link : {door.p2, door.p3}) {
+				if (link == 0xFFFF) continue;
+				ASSERT_GE(link, 1000);
+				ASSERT_LT(link - 1000u, features.size());
+				const auto& opener = features[link - 1000];
+				for (int side = 0; side < 4; ++side) {
+					if (!(opener.mask & (1 << side))) continue;
+					++checked;
+					EXPECT_FALSE(int(opener.x) + dx[side] == door.x &&
+					             int(opener.y) + dy[side] == door.y)
+						<< "level " << l << " door (" << int(door.x) << ","
+						<< int(door.y) << ") opener faces the blocked doorway";
+				}
+			}
+		}
+	}
+	EXPECT_GT(checked, 0);
+}
+
 // Every level must be labelled into at least one region: the region list is
 // what the stairs, key and monster passes all draw their cells from, so a
 // level with none comes out empty.

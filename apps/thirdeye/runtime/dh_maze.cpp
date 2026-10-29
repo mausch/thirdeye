@@ -916,25 +916,35 @@ void passLockItem(Gen &g, R250 &rng, uint8_t kind, int idx, int region) {
 	g.emitItem(item, static_cast<uint8_t>(idx), lvlIdx, y, x);
 }
 
-// 1325:2de5 -- hang a feature on a wall beside a door. Probes the two cells
-// flanking the door's axis; the first solid, unclaimed one takes the record.
+// 1325:2de5 -- mount the opener from the shallower approach to the door.
+// Probe the two diagonals around that approach, then the wall two steps out.
+// Mounting it beside the door facing INTO the doorway hides it behind the
+// closed door: the party would have to occupy the door cell to use it.
 bool attachToWall(Gen &g, uint8_t type, uint16_t p2, int doorRow, int doorCol,
-                  uint8_t doorTile) {
-	// A `│` door sits in a north-south wall run and opens east/west, so its
-	// opener goes north or south of it -- and vice versa.
-	const int dirs[2] = { (doorTile == kDoorV) ? 0 : 1, (doorTile == kDoorV) ? 2 : 3 };
-	for (int i = 0; i < 2; ++i) {
-		const int d = dirs[i];
-		const int y = doorRow + kDRow[d], x = doorCol + kDCol[d];
-		if (y < 0 || x < 0 || y >= kW || x >= kW) continue;
+                  int approach, int region) {
+	auto emit = [&](int y, int x, int side) {
 		const int p = y * kW + x;
-		if (g.lv.used[p] || g.lv.grid[p] != kRock) continue;
 		g.lv.used[p] = 1;
-		const int side = (d + 2) & 3;      // the face the player sees
 		g.emitFeature(type, p2, 0xFFFF, static_cast<uint8_t>(1u << side),
 		              g.level, y, x);
 		return true;
+	};
+	auto inside = [](int y, int x) { return y >= 0 && x >= 0 && y < kW && x < kW; };
+	const int fy = doorRow + kDRow[approach], fx = doorCol + kDCol[approach];
+	for (int turn : {3, 1}) {
+		const int lateral = (approach + turn) & 3;
+		const int y = fy + kDRow[lateral], x = fx + kDCol[lateral];
+		if (!inside(y, x)) continue;
+		if (g.lv.grid[y * kW + x] == static_cast<uint8_t>(0x41 + region)) {
+			if (inside(fy, fx) && !g.lv.used[fy * kW + fx])
+				return emit(fy, fx, approach);
+		} else if (g.lv.grid[y * kW + x] == kRock && !g.lv.used[y * kW + x]) {
+			return emit(y, x, (lateral + 2) & 3);
+		}
 	}
+	const int y = fy + kDRow[approach], x = fx + kDCol[approach];
+	if (inside(y, x) && g.lv.grid[y * kW + x] == kRock && !g.lv.used[y * kW + x])
+		return emit(y, x, (approach + 2) & 3);
 	return false;
 }
 
@@ -947,8 +957,9 @@ void passDoorOpener(Gen &g, R250 &rng, int doorIdx, uint8_t tile, int row, int c
 	// region from the floor beside it -- and the *shallower* side, because the
 	// key has to be reachable before the door it opens. Getting this wrong is
 	// how you generate an unsolvable dungeon.
-	int region = 0, best = 1 << 30;
-	for (int d = 0; d < 4; ++d) {
+	int region = 0, approach = 0, best = 1 << 30;
+	const int approaches[2] = {(tile == kDoorV) ? 3 : 0, (tile == kDoorV) ? 1 : 2};
+	for (int d : approaches) {
 		const int ny = row + kDRow[d], nx = col + kDCol[d];
 		if (ny < 0 || nx < 0 || ny >= kW || nx >= kW) continue;
 		const uint8_t t = g.lv.grid[ny * kW + nx];
@@ -957,6 +968,7 @@ void passDoorOpener(Gen &g, R250 &rng, int doorIdx, uint8_t tile, int row, int c
 		if (r < g.lv.regions.size() && g.lv.regions[r].depth < best) {
 			best = g.lv.regions[r].depth;
 			region = static_cast<int>(r);
+			approach = d;
 		}
 	}
 	const int r = rng.roll(1, 100, 0);
@@ -969,7 +981,7 @@ void passDoorOpener(Gen &g, R250 &rng, int doorIdx, uint8_t tile, int row, int c
 			else if (s < 0x5B) { t = 10; idx = rng.range(0, 18);
 			                     if (idx == 5) idx = rng.range(0, 4); }
 			else               { t = 11; idx = rng.range(0, 5); }
-			if (attachToWall(g, t, static_cast<uint16_t>(idx), row, col, tile)) {
+			if (attachToWall(g, t, static_cast<uint16_t>(idx), row, col, approach, region)) {
 				g.feats()[static_cast<size_t>(doorIdx)].p2 =
 					static_cast<uint16_t>(999 + g.feats().size());
 				passLockItem(g, rng, t, idx, region);
@@ -979,7 +991,7 @@ void passDoorOpener(Gen &g, R250 &rng, int doorIdx, uint8_t tile, int row, int c
 	} else {
 		const int s = rng.roll(1, 100, 0);
 		const uint8_t t = (s < 5) ? 7 : (s < 0x32) ? 6 : 8;
-		if (attachToWall(g, t, 0xFFFF, row, col, tile)) {
+		if (attachToWall(g, t, 0xFFFF, row, col, approach, region)) {
 			g.feats()[static_cast<size_t>(doorIdx)].p3 =
 				static_cast<uint16_t>(999 + g.feats().size());
 			return;
