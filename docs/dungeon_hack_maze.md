@@ -387,16 +387,19 @@ but confirm by cross-referencing the field-load pattern in MAZE.
 
 ## `ITEMS.DAT`
 
-Written by `FUN_1325_3bb0` (r2 `0x6e00`) but **never read by any DH SOP
-object via `open_file`**. Sweep across all HACK.RES code resources
-(dungeon / kernel / cgen / custom / automap) finds these three SOP-side
-filename literals only: `SAVEGAME\PC.DAT`, `SAVEGAME\SETTINGS.DAT`,
-`SAVEGAME\SETSAVE.DAT`. So the ITEMS.DAT consumer is either the
-AESOP.EXE C runtime (an internal init not visible to the SOP layer),
-`explode_save`, or the file is genuinely a MAZE-only artifact that
-phase-two doesn't consume. Our mini-MAZE still emits it (zero
-terminator = 8 bytes) so any consumer that does exist finds a
-structurally-valid empty stream.
+Written by `FUN_1325_3bb0` (r2 `0x6e00`), consumed by the SOP's
+`dungeon.Init whole dungeon` (M:469). At bytecode offset `0x20c6`, it
+calls **`open_feature_file(-1)`**, then reads the item stream through
+`get_feature_record`. AESOP.EXE's implementation at image-relative
+`0xa793` (file offset `0xbd93`, 0x1600-byte MZ header) selects
+`SAVEGAME\ITEMS.DAT` for negative arguments and `SAVEGAME\FEAnn.DAT`
+for nonnegative ones. Thus this file has no SOP-side filename literal.
+
+The SOP creates items starting at object slot 100, one slot per record,
+and stops on type zero. A missing file looks like an immediate terminator.
+Thirdeye previously formatted -1 as `FEA-1.DAT`, silently skipping every
+generated item. `scripts/dh_items_smoke.py` reproduces the failure and
+checks item creation, coordinates, classes, and save/restore on copied data.
 
 File format on disk is a stream of 8-byte records terminated by an
 all-zero record:
@@ -420,10 +423,18 @@ output byte 4 = source byte 4
 output bytes 5-7 = 0
 ```
 
-Source field semantics need cross-referencing with the DH SOP's
-`items` object externs (`W:itmflags`, `B:bonus`, `B:key_kind`,
-`B:spec_kind`, `B:gem_kind`, `B:hint_num`) to name each of the 5
-source bytes. That mapping isn't traced yet.
+The output fields are `{type, x, y, level, aux, 0, 0, 0}`. The SOP
+interprets type 1 as a hint sheet, 2 as rations, 3 as random treasure,
+4 as a key, 5 as a gem, 6 as a special item, and 8 as a coin. `aux`
+selects the hint/key/gem/special-item variant or normal versus iron rations.
+
+Random treasure uses `tables.create random treasure` (M:395), which
+calls `roll_chance` on 16 cumulative thresholds ending in 100, then 0xFF.
+AESOP.EXE image-relative `0xaf99` (file offset `0xc599`) rolls 0..99,
+returns the **zero-based first index with threshold > roll**, and returns
+zero if it reaches 0xFF. Thirdeye previously summed these thresholds as
+weights and returned a one-based index. This distorted the distribution
+and could return 16, outside the SOP's 0..15 cases, creating class zero.
 
 ## `SEED.TXT`
 

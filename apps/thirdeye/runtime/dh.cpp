@@ -313,8 +313,8 @@ bool tryHandle(Context &ctx, const std::string &fn,
 		return true;
 	}
 
-	// roll_chance(prob_table_ptr): scan a byte array of percentages ending in
-	// 0xFF, roll a d100, return the index whose cumulative weight crosses it.
+	// AESOP.EXE 0000:af99: cumulative percentage thresholds terminated by
+	// 0xFF. Roll 0..99 and return the zero-based first threshold > roll.
 	// ponytail: bounded scan (256 entries max), returns 0 if the table can't be
 	// bound-checked -- rare enough not to be worth loud failure yet.
 	if (fn == "roll_chance" && args.size() >= 1) {
@@ -341,19 +341,14 @@ bool tryHandle(Context &ctx, const std::string &fn,
 			if (std::memchr(p, 0xFF, want) != nullptr) break;
 		}
 		if (!tbl) { result = 0; return true; }
-		int sum = 0;
-		int n = 0;
-		while (static_cast<std::size_t>(n) < avail && tbl[n] != 0xFF) {
-			sum += tbl[n];
-			++n;
+		const int roll = static_cast<int>(dhRng()() % 100);
+		result = 0;
+		for (std::size_t idx = 0; idx < avail && tbl[idx] != 0xFF; ++idx) {
+			if (roll < tbl[idx]) {
+				result = static_cast<VM::Value>(idx);
+				break;
+			}
 		}
-		int roll = sum > 0 ? static_cast<int>(dhRng()() % sum) : 0;
-		int idx = 0, acc = 0;
-		for (idx = 0; idx < n; ++idx) {
-			acc += tbl[idx];
-			if (roll < acc) break;
-		}
-		result = idx + 1;      // ADDITIONAL doc: "from 1 to table length -1"
 		return true;
 	}
 
