@@ -17,6 +17,8 @@ set(UNITTEST
     dhsave_tests.cpp
     runtime_string_tests.cpp
     runtime_window_tests.cpp
+    runtime_graphics_tests.cpp
+    ../thirdeye/runtime/graphics.cpp
     ../thirdeye/runtime/internal.cpp
     ../thirdeye/runtime/rtcode.cpp
     ../thirdeye/runtime/rtobject.cpp

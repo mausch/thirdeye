@@ -207,6 +207,9 @@ bool tryHandle(Context &ctx, const std::string &fn,
 		uint16_t page = static_cast<uint16_t>(args[0]);
 		uint16_t table = static_cast<uint16_t>(args[1]);
 		uint16_t number = static_cast<uint16_t>(args[2]);
+		// Resource numbers are game-local: DH's 190 is Marble Wallset,
+		// not EOB3's full-screen HUD backdrop.
+		const bool eobBackdrop = !gDungeonHack && table == 190;
 		int x = static_cast<int>(args[3]), y = static_cast<int>(args[4]);
 		// Match the original GIL2VFX_draw_bitmap: every draw clips to its pane's
 		// natural rect (panes[wnd].x0..x1, y0..y1). Our events table is the SOP's
@@ -295,7 +298,7 @@ bool tryHandle(Context &ctx, const std::string &fn,
 			// costs nothing on every other draw. (fillRect also writes the
 			// text-free backdrop snapshot, so later text-window restores of
 			// the log area come back black, not the outtake's brown fill.)
-			if (table == 190) {
+			if (eobBackdrop) {
 				ctx.gfx->fillRect(x, y, x + 319, y + 199, 0);
 				// Entering the game from the title menu ("Continue the
 				// Quest" / "Summon the Heroes") happens INSIDE the same
@@ -333,7 +336,7 @@ bool tryHandle(Context &ctx, const std::string &fn,
 			// and a blind capture would poison the underlay with compass
 			// pixels -- exactly the gold-shrapnel-in-the-arrow-glyphs bug.
 			const SDL_Rect &ur = GRAPHICS::Graphics::menuUnderlayRect();
-			if (table == 190 &&
+			if (eobBackdrop &&
 			    (!clipped ||
 			     (px0 <= ur.x && py0 <= ur.y &&
 			      px1 >= ur.x + ur.w - 1 && py1 >= ur.y + ur.h - 1)))
