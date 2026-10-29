@@ -947,12 +947,14 @@ bool tryHandle(Context &ctx, const std::string &fn,
 		return true;
 	}
 
-	// open_feature_file(level): opens savegame/FEA%02d.DAT and points the
-	// current file at it, ready for sequential get_feature_record calls.
+	// AESOP.EXE 0000:a793: negative level selects ITEMS.DAT; nonnegative
+	// levels select FEA%02d.DAT. dungeon.Init whole dungeon uses -1 to
+	// instantiate the generated floor items through get_feature_record.
 	if (fn == "open_feature_file" && args.size() >= 1) {
 		int lvl = static_cast<int>(args[0]);
-		char fname[16];
-		std::snprintf(fname, sizeof(fname), "FEA%02d.DAT", lvl);
+		char fname[32];
+		if (lvl < 0) std::snprintf(fname, sizeof(fname), "ITEMS.DAT");
+		else std::snprintf(fname, sizeof(fname), "FEA%02d.DAT", lvl);
 		DHFile &f = currentFile();
 		f.reset();
 		auto path = savegamePath(ctx, fname);
